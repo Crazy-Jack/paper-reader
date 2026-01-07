@@ -1,3 +1,5 @@
 paper_db/
 .DS_Store
 results/
+node_modules/
+*.pyc

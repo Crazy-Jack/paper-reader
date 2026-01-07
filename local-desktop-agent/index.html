@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Thesis Editor</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <h1>Thesis Editor</h1>
+      <div class="header-actions">
+        <button id="save-btn" class="btn btn-primary">Save</button>
+        <button id="export-btn" class="btn btn-secondary">Export</button>
+      </div>
+    </header>
+    <main class="app-main">
+      <div class="workspace">
+        <!-- Thesis Editor Section -->
+        <section class="thesis-section">
+          <div class="section-header">
+            <h2>Thesis</h2>
+            <div class="editor-toolbar">
+              <button id="insert-citation-btn" class="btn btn-small">Insert Citation</button>
+            </div>
+          </div>
+          <textarea 
+            id="thesis-editor" 
+            class="thesis-editor" 
+            placeholder="Start writing your thesis here...&#10;&#10;Use the 'Insert Citation' button or type [@ref1] to add references."
+          ></textarea>
+        </section>
+
+        <!-- References Section -->
+        <section class="references-section">
+          <div class="section-header">
+            <h2>References</h2>
+            <button id="add-ref-btn" class="btn btn-primary btn-small">+ Add Reference</button>
+          </div>
+          <div id="references-list" class="references-list">
+            <!-- References will be dynamically added here -->
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Reference Modal -->
+  <div id="ref-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Reference</h3>
+        <button class="modal-close" id="close-modal">&times;</button>
+      </div>
+      <div class="input-mode-toggle">
+        <button type="button" id="toggle-form-mode" class="btn btn-small btn-secondary active">Form</button>
+        <button type="button" id="toggle-bibtex-mode" class="btn btn-small btn-secondary">BibTeX</button>
+      </div>
+      
+      <!-- Form Mode -->
+      <form id="ref-form" class="ref-form">
+        <div id="form-fields">
+          <div class="form-group">
+            <label for="ref-title">Title *</label>
+            <input type="text" id="ref-title" required>
+          </div>
+          <div class="form-group">
+            <label for="ref-authors">Authors *</label>
+            <input type="text" id="ref-authors" placeholder="e.g., Smith, J., & Doe, A." required>
+          </div>
+          <div class="form-group">
+            <label for="ref-year">Year</label>
+            <input type="number" id="ref-year" placeholder="e.g., 2024">
+          </div>
+          <div class="form-group">
+            <label for="ref-venue">Venue/Journal</label>
+            <input type="text" id="ref-venue" placeholder="e.g., NeurIPS 2024">
+          </div>
+          <div class="form-group">
+            <label for="ref-url">URL</label>
+            <input type="url" id="ref-url" placeholder="https://...">
+          </div>
+          <div class="form-group">
+            <label for="ref-notes">Notes</label>
+            <textarea id="ref-notes" rows="3" placeholder="Additional notes..."></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="cancel-ref-btn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Reference</button>
+        </div>
+      </form>
+
+      <!-- BibTeX Mode -->
+      <div id="bibtex-input" class="bibtex-input" style="display: none;">
+        <div class="form-group">
+          <label for="bibtex-text">Paste BibTeX Entry</label>
+          <textarea 
+            id="bibtex-text" 
+            rows="12" 
+            placeholder="@article{key,&#10;  title={Paper Title},&#10;  author={Smith, John and Doe, Jane},&#10;  year={2024},&#10;  journal={Journal Name},&#10;  url={https://example.com}&#10;}"
+            style="font-family: 'Courier New', monospace; font-size: 0.9rem;"
+          ></textarea>
+          <div class="bibtex-help">
+            <small>Paste a BibTeX entry and click "Parse BibTeX" to auto-fill the form.</small>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="cancel-ref-btn-bibtex" class="btn btn-secondary">Cancel</button>
+          <button type="button" id="parse-bibtex-btn" class="btn btn-primary">Parse BibTeX</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
+

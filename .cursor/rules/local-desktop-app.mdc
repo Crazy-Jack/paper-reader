@@ -1,0 +1,47 @@
+---
+alwaysApply: true
+---
+
+Project structure for the desktop app is:
+ROOT: ./local-desktop-agent
+
+## Project Structure
+
+```
+local-desktop-agent/
+├── main.js           # Electron main process - handles window creation and app lifecycle
+├── preload.js        # Preload script - secure bridge between main and renderer processes
+├── index.html        # Main renderer HTML - application UI
+├── renderer.js       # Renderer process script - frontend logic
+├── styles/
+│   └── main.css      # Application styles
+├── package.json      # Dependencies, scripts, and project metadata
+├── .gitignore        # Git ignore patterns
+└── README.md         # Project documentation
+```
+
+## Key Files
+
+- **main.js**: Entry point for Electron. Creates BrowserWindow, manages app lifecycle
+- **preload.js**: Security bridge using contextBridge to expose safe APIs to renderer
+- **index.html**: Main UI structure with thesis editor and reference management
+- **renderer.js**: Frontend JavaScript logic - ThesisEditor class with full CRUD for references
+- **styles/main.css**: Application styling with split-pane layout
+
+## Features
+
+- **Thesis Editor**: Full-featured text editor for writing thesis content
+- **Reference Management**: Add, edit, delete references with metadata (title, authors, year, venue, URL, notes)
+- **Citation Insertion**: Insert citations in format [@ref1] into thesis text
+- **Auto-save**: Automatic saving to localStorage on content changes
+- **Export**: Export thesis with formatted bibliography
+- **Modal UI**: Clean modal interface for adding/editing references
+
+## Security
+
+- Context isolation enabled (nodeIntegration: false)
+- Preload script used for secure API exposure
+- Content Security Policy in HTML
+
+APPEND all the structure build for the local-desktop-agent in this file:
+./.cursor/rules/local-desktop-app.mdc

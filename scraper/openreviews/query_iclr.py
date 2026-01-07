@@ -13,7 +13,7 @@ years = [
 ]
 conferences = [
     'ICLR',
-    # 'NeurIPS',
+    'NeurIPS',
     # 'CVPR',
 ]
 keywords = []
@@ -43,6 +43,7 @@ for conf in conferences:
     scraper()
 
     # if you want to save scraped papers as OpenReview objects using pickle
+    os.makedirs('results', exist_ok=True)
     filename = f"results/{conf}_{'-'.join(years)}.pkl"
     save_papers(scraper.papers, fpath=filename)
     # saved_papers = load_papers(fpath='papers.pkl')
