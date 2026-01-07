@@ -1,0 +1,74 @@
+---
+alwaysApply: true
+---
+Always check this before implementing anything. Append the user encounter and the solution summary to the file 
+
+.cursor/rules/error-history.mdc
+
+## Electron Desktop App - Image Insertion and Resizing Issues (2024)
+
+### Error 1: IPC Handler Not Registered - "No handler registered for 'select-image'"
+**Encounter**: When clicking "Insert Image" button, error occurred: "Error invoking remote method 'select-image': Error: No handler registered for 'select-image'"
+
+**Root Cause**: The IPC handler `ipcMain.handle('select-image', ...)` was registered at the top level before `app.whenReady()`, but the handler was trying to access `mainWindow` which didn't exist yet.
+
+**Solution**: Moved the IPC handler registration inside `app.whenReady().then()` after `createWindow()` is called. Also added fallback to get focused window using `BrowserWindow.getFocusedWindow()`.
+
+**Files Changed**: `local-desktop-agent/main.js`
+
+---
+
+### Error 2: Image Caption Always Centered - Can't Create Line Breaks
+**Encounter**: After editing picture captions, text was always centered and user couldn't use Delete key to start the next line properly.
+
+**Root Cause**: CSS had `text-align: center` on the figure element, and the figcaption didn't support proper line break editing with `white-space: pre-wrap`.
+
+**Solution**: 
+- Changed `text-align` for figcaption to `center` (as user wanted centered by default)
+- Added `white-space: pre-wrap` to preserve line breaks
+- Added Enter key handler to insert `<br>` tags for line breaks
+- Added focus/blur styling for better editing experience
+
+**Files Changed**: `local-desktop-agent/renderer.js`, `local-desktop-agent/styles/main.css`
+
+---
+
+### Error 3: Images Not Clickable - Resize Functionality Not Working
+**Encounter**: User couldn't click images to select them, and resize handles weren't visible or functional.
+
+**Root Cause**: 
+- Event propagation issues - editor's click handler was deselecting images before they could be selected
+- Missing `pointer-events: auto` CSS property on image containers
+- Click handlers were not properly attached to image elements
+
+**Solution**:
+- Fixed click event handler on editor to check if clicking on image-related elements before deselecting
+- Added `pointer-events: auto` and `cursor: pointer` to image container CSS
+- Improved event propagation handling with `stopPropagation()` and `preventDefault()`
+- Added click handlers to both image and container elements
+
+**Files Changed**: `local-desktop-agent/renderer.js`, `local-desktop-agent/styles/main.css`
+
+---
+
+### Error 4: Variable Initialization Order - "Cannot access 'imageContainer' before initialization"
+**Encounter**: Error when inserting images: "Error inserting image: Cannot access 'imageContainer' before initialization"
+
+**Root Cause**: Variables `imageContainer` and `resizeHandle` were being referenced in event listeners before they were declared/initialized in the `insertImageAtCursor()` function.
+
+**Solution**: Reordered variable declarations:
+1. Create `resizeHandle` first
+2. Create `imageContainer` second
+3. Create `img` element
+4. Append elements to container
+5. Add event listeners after all elements exist
+
+**Files Changed**: `local-desktop-agent/renderer.js`
+
+---
+
+### Key Learnings:
+- **IPC Handlers in Electron**: Must be registered after `app.whenReady()` and window creation if they need to reference the window
+- **Event Propagation**: Careful handling needed when multiple click handlers exist on parent/child elements
+- **Variable Initialization**: Always declare variables before using them in event listeners or closures
+- **Content Editable Elements**: Need proper CSS (`white-space: pre-wrap`) and keyboard event handlers to support multi-line editing

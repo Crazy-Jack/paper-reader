@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <title>Thesis Editor</title>
   <link rel="stylesheet" href="styles/main.css">
 </head>
@@ -13,7 +13,8 @@
       <h1>Thesis Editor</h1>
       <div class="header-actions">
         <button id="save-btn" class="btn btn-primary">Save</button>
-        <button id="export-btn" class="btn btn-secondary">Export</button>
+        <button id="export-btn" class="btn btn-secondary">Export TXT</button>
+        <button id="export-html-btn" class="btn btn-secondary">Export HTML</button>
       </div>
     </header>
     <main class="app-main">
@@ -23,14 +24,22 @@
           <div class="section-header">
             <h2>Thesis</h2>
             <div class="editor-toolbar">
+              <button id="insert-image-btn" class="btn btn-small" title="Insert Image">Insert Image</button>
+              <button id="insert-sidebyside-btn" class="btn btn-small" title="Insert Images Side by Side">Insert Side-by-Side</button>
               <button id="insert-citation-btn" class="btn btn-small">Insert Citation</button>
             </div>
           </div>
-          <textarea 
-            id="thesis-editor" 
-            class="thesis-editor" 
-            placeholder="Start writing your thesis here...&#10;&#10;Use the 'Insert Citation' button or type [@ref1] to add references."
-          ></textarea>
+          <div class="thesis-editor-container">
+            <div 
+              id="thesis-editor" 
+              class="thesis-editor" 
+              contenteditable="true"
+              data-placeholder="Start writing your thesis here...
+
+Use the 'Insert Citation' button or type [@ref1] to add references.
+Use 'Insert Image' to add images from your computer."
+            ></div>
+          </div>
         </section>
 
         <!-- References Section -->

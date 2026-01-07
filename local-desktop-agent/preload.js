@@ -1,10 +1,8 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 // Expose protected methods that allow the renderer process to use
 // the APIs in a secure way
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Add your API methods here as needed
-  // Example:
-  // getVersion: () => process.versions.electron,
+  selectImage: () => ipcRenderer.invoke('select-image')
 });
 

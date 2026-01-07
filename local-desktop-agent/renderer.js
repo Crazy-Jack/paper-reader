@@ -4,6 +4,7 @@ class ThesisEditor {
     this.references = [];
     this.editingRefId = null;
     this.nextRefId = 1;
+    this.nextImageId = 1;
     
     this.init();
     this.loadFromStorage();
@@ -15,8 +16,21 @@ class ThesisEditor {
     this.referencesList = document.getElementById('references-list');
     this.addRefBtn = document.getElementById('add-ref-btn');
     this.insertCitationBtn = document.getElementById('insert-citation-btn');
+    this.insertImageBtn = document.getElementById('insert-image-btn');
+    this.insertSideBySideBtn = document.getElementById('insert-sidebyside-btn');
     this.saveBtn = document.getElementById('save-btn');
     this.exportBtn = document.getElementById('export-btn');
+    this.exportHtmlBtn = document.getElementById('export-html-btn');
+    
+    // Check if elements exist
+    if (!this.insertImageBtn) {
+      console.error('Insert Image button not found!');
+      return;
+    }
+    if (!this.insertSideBySideBtn) {
+      console.error('Insert Side by Side button not found!');
+      return;
+    }
     
     // Modal elements
     this.modal = document.getElementById('ref-modal');
@@ -46,8 +60,34 @@ class ThesisEditor {
     // Event listeners
     this.addRefBtn.addEventListener('click', () => this.openAddRefModal());
     this.insertCitationBtn.addEventListener('click', () => this.insertCitation());
+    
+    // Add event listener for insert image button with error handling
+    if (this.insertImageBtn) {
+    this.insertImageBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Insert Image button clicked');
+      this.insertImage(false).catch(err => {
+        console.error('Error inserting image:', err);
+        alert('Error inserting image: ' + err.message);
+      });
+    });
+    
+    this.insertSideBySideBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Insert Side by Side button clicked');
+      this.insertImage(true).catch(err => {
+        console.error('Error inserting image:', err);
+        alert('Error inserting image: ' + err.message);
+      });
+    });
+    } else {
+      console.error('Cannot attach event listener: insertImageBtn is null');
+    }
     this.saveBtn.addEventListener('click', () => this.save());
     this.exportBtn.addEventListener('click', () => this.export());
+    this.exportHtmlBtn.addEventListener('click', () => this.exportAsHTML());
     this.closeModal.addEventListener('click', () => this.closeModalDialog());
     this.cancelRefBtn.addEventListener('click', () => this.closeModalDialog());
     this.cancelRefBtnBibtex.addEventListener('click', () => this.closeModalDialog());
@@ -61,12 +101,443 @@ class ThesisEditor {
       this.saveToStorage();
     });
 
+    // Handle paste events for images
+    this.thesisEditor.addEventListener('paste', (e) => this.handlePaste(e));
+
+    // Handle drag and drop for images
+    this.thesisEditor.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    this.thesisEditor.addEventListener('drop', (e) => this.handleDrop(e));
+
     // Close modal on outside click
     this.modal.addEventListener('click', (e) => {
       if (e.target === this.modal) {
         this.closeModalDialog();
       }
     });
+    
+    // Click to select/deselect images or deselect when clicking on text
+    this.thesisEditor.addEventListener('click', (e) => {
+      // Check if clicking on image-related elements
+      const clickedFigure = e.target.closest('figure');
+      const clickedImageContainer = e.target.closest('.image-container');
+      const clickedResizeHandle = e.target.closest('.resize-handle');
+      const clickedCaption = e.target.closest('figcaption');
+      
+      // Don't deselect if clicking on resize handle (that's for resizing)
+      if (clickedResizeHandle) {
+        return;
+      }
+      
+      // If clicking on caption, don't deselect (allow caption editing)
+      if (clickedCaption && clickedCaption.isContentEditable) {
+        return;
+      }
+      
+      // If clicking on an already selected image, deselect it
+      if (clickedFigure && clickedFigure.classList.contains('selected')) {
+        this.deselectAllImages();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      
+      // If clicking on image container or figure, let the image's click handler deal with it
+      if (clickedImageContainer || clickedFigure) {
+        return; // Image click handler will select it
+      }
+      
+      // Otherwise, deselect all images (clicking on text or empty space)
+      this.deselectAllImages();
+    });
+    
+    // Handle Delete/Backspace key to delete selected images
+    this.thesisEditor.addEventListener('keydown', (e) => {
+      // Don't delete if user is editing a caption
+      if (e.target.tagName === 'FIGCAPTION' && e.target.isContentEditable) {
+        return;
+      }
+      
+      // Delete selected images with Delete or Backspace key
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const selectedFigures = this.thesisEditor.querySelectorAll('figure.selected');
+        if (selectedFigures.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          selectedFigures.forEach(figure => {
+            this.deleteImage(figure);
+          });
+        }
+      }
+      
+      // Escape key to deselect
+      if (e.key === 'Escape') {
+        this.deselectAllImages();
+      }
+    });
+  }
+
+  selectImage(figure) {
+    // Deselect all other images
+    this.deselectAllImages();
+    
+    // Select this image
+    figure.classList.add('selected');
+    const imageContainer = figure.querySelector('.image-container');
+    if (imageContainer) {
+      imageContainer.classList.add('selected');
+    }
+  }
+
+  deselectAllImages() {
+    this.thesisEditor.querySelectorAll('figure.selected').forEach(fig => {
+      fig.classList.remove('selected');
+      const container = fig.querySelector('.image-container');
+      if (container) {
+        container.classList.remove('selected');
+      }
+    });
+  }
+
+  deleteImage(figure) {
+    // Store reference to next sibling before removal
+    const nextSibling = figure.nextSibling;
+    
+    // Check if figure is in a side-by-side container
+    const sideBySideContainer = figure.closest('.images-side-by-side');
+    
+    if (sideBySideContainer) {
+      // Remove the figure from side-by-side container
+      figure.remove();
+      
+      // If only one figure left, remove side-by-side wrapper and restore normal layout
+      const remainingFigures = sideBySideContainer.querySelectorAll('figure');
+      if (remainingFigures.length === 1) {
+        const singleFigure = remainingFigures[0];
+        const parent = sideBySideContainer.parentNode;
+        parent.insertBefore(singleFigure, sideBySideContainer);
+        sideBySideContainer.remove();
+      } else if (remainingFigures.length === 0) {
+        // No figures left, remove the empty container and any trailing BR
+        if (sideBySideContainer.nextSibling && 
+            sideBySideContainer.nextSibling.nodeType === Node.ELEMENT_NODE && 
+            sideBySideContainer.nextSibling.tagName === 'BR') {
+          sideBySideContainer.nextSibling.remove();
+        }
+        sideBySideContainer.remove();
+      }
+    } else {
+      // Regular figure, remove it and clean up trailing BR if exists
+      if (nextSibling && nextSibling.nodeType === Node.ELEMENT_NODE && nextSibling.tagName === 'BR') {
+        nextSibling.remove();
+      }
+      figure.remove();
+    }
+    
+    this.deselectAllImages();
+    this.saveToStorage();
+  }
+
+  setupImageResize(container, handle, img) {
+    let isResizing = false;
+    let startX, startY, startWidth, startHeight;
+    const self = this; // Store reference to this
+
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isResizing = true;
+      
+      const rect = img.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startWidth = rect.width;
+      startHeight = rect.height;
+      
+      // Store original aspect ratio if Shift key is held
+      const aspectRatio = startWidth / startHeight;
+      
+      function onMouseMove(e) {
+        if (!isResizing) return;
+        
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        let newWidth = startWidth + deltaX;
+        let newHeight = startHeight + deltaY;
+        
+        // Maintain aspect ratio if Shift key is pressed
+        if (e.shiftKey) {
+          newHeight = newWidth / aspectRatio;
+        }
+        
+        // Set minimum size
+        const minSize = 50;
+        newWidth = Math.max(minSize, newWidth);
+        newHeight = Math.max(minSize, newHeight);
+        
+        img.style.width = newWidth + 'px';
+        img.style.height = newHeight + 'px';
+        img.style.maxWidth = 'none';
+        img.style.maxHeight = 'none';
+      }
+      
+      function onMouseUp() {
+        isResizing = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        self.saveToStorage();
+      }
+      
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  async insertImage(sideBySide = false) {
+    // Use Electron's file dialog to select an image
+    if (window.electronAPI && window.electronAPI.selectImage) {
+      const result = await window.electronAPI.selectImage();
+      if (result && result.dataUrl) {
+        this.insertImageAtCursor(result.dataUrl, result.fileName, sideBySide);
+      }
+    } else {
+      // Fallback for browser testing - use file input
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            this.insertImageAtCursor(event.target.result, file.name, sideBySide);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    }
+  }
+
+  insertImageAtCursor(dataUrl, fileName = 'image', sideBySide = false) {
+    const imgId = `img-${this.nextImageId++}`;
+    
+    // Create figure with image and caption
+    const figure = document.createElement('figure');
+    figure.id = imgId;
+    figure.className = 'thesis-image';
+    
+    // Create resize handle first
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'resize-handle';
+    resizeHandle.innerHTML = '◢';
+    resizeHandle.title = 'Drag to resize image';
+    
+    // Wrap image in a container for resizing
+    const imageContainer = document.createElement('div');
+    imageContainer.className = 'image-container';
+    
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = fileName;
+    img.title = 'Click to select, drag corners to resize';
+    img.draggable = false; // Prevent dragging the image itself
+    
+    // Append image and resize handle to container
+    imageContainer.appendChild(img);
+    imageContainer.appendChild(resizeHandle);
+    
+    // Add click handler for selection - reference imageContainer after it's created
+    img.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.selectImage(figure);
+      return false;
+    });
+    
+    // Add click handler to container
+    imageContainer.addEventListener('click', (e) => {
+      // Don't handle if clicking resize handle
+      if (e.target === resizeHandle) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      this.selectImage(figure);
+      return false;
+    });
+    
+    // Set up resize functionality
+    this.setupImageResize(imageContainer, resizeHandle, img);
+    
+    const figcaption = document.createElement('figcaption');
+    figcaption.contentEditable = 'true';
+    figcaption.textContent = `Figure: ${fileName}`;
+    figcaption.setAttribute('data-placeholder', 'Enter caption...');
+    
+    // Handle Enter key to create line breaks
+    figcaption.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.execCommand('insertLineBreak', false, null);
+      }
+    });
+    
+    figcaption.addEventListener('blur', () => this.saveToStorage());
+    figcaption.addEventListener('input', () => this.saveToStorage());
+    
+    figure.appendChild(imageContainer);
+    figure.appendChild(figcaption);
+    
+    // Insert at cursor position
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      
+      // Check if we're inside the thesis editor
+      if (this.thesisEditor.contains(range.commonAncestorContainer)) {
+        // Check if we should insert side by side
+        if (sideBySide) {
+          const sideBySideContainer = this.findOrCreateSideBySideContainer(range);
+          sideBySideContainer.appendChild(figure);
+          
+          // Add a new line after the side-by-side container
+          const br = document.createElement('br');
+          sideBySideContainer.after(br);
+          
+          range.setStartAfter(br);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } else {
+          range.deleteContents();
+          range.insertNode(figure);
+          
+          // Add a new line after the figure
+          const br = document.createElement('br');
+          figure.after(br);
+          
+          // Move cursor after the figure
+          range.setStartAfter(br);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      } else {
+        // If cursor is not in editor, append to end
+        this.thesisEditor.appendChild(figure);
+        this.thesisEditor.appendChild(document.createElement('br'));
+      }
+    } else {
+      // No selection, append to end
+      this.thesisEditor.appendChild(figure);
+      this.thesisEditor.appendChild(document.createElement('br'));
+    }
+    
+    this.thesisEditor.focus();
+    this.saveToStorage();
+  }
+
+  findOrCreateSideBySideContainer(range) {
+    // Check if we're inside an existing side-by-side container
+    let node = range.startContainer;
+    while (node && node !== this.thesisEditor) {
+      if (node.nodeType === Node.ELEMENT_NODE && node.classList && node.classList.contains('images-side-by-side')) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    
+    // Check if previous sibling is a figure or side-by-side container
+    const prevSibling = this.getPreviousSiblingElement(range.startContainer);
+    if (prevSibling) {
+      if (prevSibling.tagName === 'FIGURE') {
+        // Create side-by-side wrapper and move previous figure into it
+        const sideBySideWrapper = document.createElement('div');
+        sideBySideWrapper.className = 'images-side-by-side';
+        prevSibling.parentNode.insertBefore(sideBySideWrapper, prevSibling);
+        sideBySideWrapper.appendChild(prevSibling);
+        return sideBySideWrapper;
+      } else if (prevSibling.classList && prevSibling.classList.contains('images-side-by-side')) {
+        return prevSibling;
+      }
+    }
+    
+    // Create new side-by-side container
+    const sideBySideWrapper = document.createElement('div');
+    sideBySideWrapper.className = 'images-side-by-side';
+    
+    // Insert the wrapper
+    if (range.startContainer.nodeType === Node.TEXT_NODE) {
+      range.startContainer.parentNode.insertBefore(sideBySideWrapper, range.startContainer);
+    } else {
+      range.insertNode(sideBySideWrapper);
+    }
+    
+    return sideBySideWrapper;
+  }
+
+  getPreviousSiblingElement(node) {
+    // Get the previous sibling element (skip text nodes)
+    let sibling = node.previousSibling;
+    while (sibling) {
+      if (sibling.nodeType === Node.ELEMENT_NODE) {
+        return sibling;
+      }
+      sibling = sibling.previousSibling;
+    }
+    
+    // Check parent's previous siblings
+    if (node.parentNode && node.parentNode !== this.thesisEditor) {
+      sibling = node.parentNode.previousSibling;
+      while (sibling) {
+        if (sibling.nodeType === Node.ELEMENT_NODE) {
+          return sibling;
+        }
+        sibling = sibling.previousSibling;
+      }
+    }
+    
+    return null;
+  }
+
+  handlePaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          this.insertImageAtCursor(event.target.result, 'pasted-image');
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+  }
+
+  handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        this.insertImageAtCursor(event.target.result, file.name);
+      };
+      reader.readAsDataURL(file);
+    }
   }
 
   openAddRefModal(refId = null) {
@@ -300,21 +771,36 @@ class ThesisEditor {
     const refIndex = parseInt(selection) - 1;
     if (refIndex >= 0 && refIndex < this.references.length) {
       const ref = this.references[refIndex];
-      const citation = `[@${ref.id}]`;
-      
-      const cursorPos = this.thesisEditor.selectionStart;
-      const textBefore = this.thesisEditor.value.substring(0, cursorPos);
-      const textAfter = this.thesisEditor.value.substring(cursorPos);
-      
-      this.thesisEditor.value = textBefore + citation + textAfter;
-      this.thesisEditor.focus();
-      this.thesisEditor.setSelectionRange(
-        cursorPos + citation.length,
-        cursorPos + citation.length
-      );
-      
+      this.insertTextAtCursor(`[@${ref.id}]`);
       this.saveToStorage();
     }
+  }
+
+  insertTextAtCursor(text) {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      
+      // Check if we're inside the thesis editor
+      if (this.thesisEditor.contains(range.commonAncestorContainer)) {
+        range.deleteContents();
+        const textNode = document.createTextNode(text);
+        range.insertNode(textNode);
+        
+        // Move cursor after the inserted text
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        // If cursor is not in editor, append to end
+        this.thesisEditor.appendChild(document.createTextNode(text));
+      }
+    } else {
+      // No selection, append to end
+      this.thesisEditor.appendChild(document.createTextNode(text));
+    }
+    this.thesisEditor.focus();
   }
 
   renderReferences() {
@@ -359,18 +845,7 @@ class ThesisEditor {
     const ref = this.references.find(r => r.id === refId);
     if (!ref) return;
 
-    const citation = `[@${refId}]`;
-    const cursorPos = this.thesisEditor.selectionStart;
-    const textBefore = this.thesisEditor.value.substring(0, cursorPos);
-    const textAfter = this.thesisEditor.value.substring(cursorPos);
-    
-    this.thesisEditor.value = textBefore + citation + textAfter;
-    this.thesisEditor.focus();
-    this.thesisEditor.setSelectionRange(
-      cursorPos + citation.length,
-      cursorPos + citation.length
-    );
-    
+    this.insertTextAtCursor(`[@${refId}]`);
     this.saveToStorage();
   }
 
@@ -387,9 +862,10 @@ class ThesisEditor {
 
   saveToStorage() {
     const data = {
-      thesis: this.thesisEditor.value,
+      thesis: this.thesisEditor.innerHTML,
       references: this.references,
       nextRefId: this.nextRefId,
+      nextImageId: this.nextImageId,
       lastSaved: new Date().toISOString()
     };
     localStorage.setItem('thesisData', JSON.stringify(data));
@@ -400,10 +876,56 @@ class ThesisEditor {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        this.thesisEditor.value = data.thesis || '';
+        this.thesisEditor.innerHTML = data.thesis || '';
         this.references = data.references || [];
         this.nextRefId = data.nextRefId || this.references.length + 1;
+        this.nextImageId = data.nextImageId || 1;
         this.renderReferences();
+        
+        // Re-attach event listeners for images and figcaptions
+        this.thesisEditor.querySelectorAll('figure').forEach(figure => {
+          const img = figure.querySelector('img');
+          const imageContainer = figure.querySelector('.image-container');
+          const resizeHandle = figure.querySelector('.resize-handle');
+          
+          if (img && imageContainer && resizeHandle) {
+            img.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              this.selectImage(figure);
+              return false;
+            });
+            
+            imageContainer.addEventListener('click', (e) => {
+              if (e.target === resizeHandle) {
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              this.selectImage(figure);
+              return false;
+            });
+            
+            this.setupImageResize(imageContainer, resizeHandle, img);
+          }
+        });
+        
+        this.thesisEditor.querySelectorAll('figcaption').forEach(caption => {
+          caption.contentEditable = 'true';
+          if (!caption.hasAttribute('data-placeholder')) {
+            caption.setAttribute('data-placeholder', 'Enter caption...');
+          }
+          
+          caption.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              document.execCommand('insertLineBreak', false, null);
+            }
+          });
+          
+          caption.addEventListener('blur', () => this.saveToStorage());
+          caption.addEventListener('input', () => this.saveToStorage());
+        });
       } catch (e) {
         console.error('Error loading saved data:', e);
       }
@@ -411,7 +933,8 @@ class ThesisEditor {
   }
 
   export() {
-    const thesis = this.thesisEditor.value;
+    // Get text content (strip HTML but keep structure)
+    const thesis = this.getPlainTextContent();
     const references = this.references;
     
     // Format references as bibliography
@@ -438,6 +961,72 @@ class ThesisEditor {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  exportAsHTML() {
+    const thesis = this.thesisEditor.innerHTML;
+    const references = this.references;
+    
+    // Format references as HTML
+    let bibliography = '<h2>References</h2><ol>';
+    references.forEach((ref) => {
+      bibliography += '<li>';
+      if (ref.authors) bibliography += `${this.escapeHtml(ref.authors)}. `;
+      if (ref.title) bibliography += `"${this.escapeHtml(ref.title)}". `;
+      if (ref.venue) bibliography += `${this.escapeHtml(ref.venue)}. `;
+      if (ref.year) bibliography += `(${ref.year}). `;
+      if (ref.url) bibliography += `<a href="${this.escapeHtml(ref.url)}">${this.escapeHtml(ref.url)}</a>`;
+      bibliography += '</li>';
+    });
+    bibliography += '</ol>';
+
+    const fullHTML = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Thesis Export</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 800px; margin: 2rem auto; padding: 1rem; line-height: 1.8; }
+    figure { margin: 1.5rem 0; text-align: center; }
+    figcaption { font-size: 0.9rem; color: #666; font-style: italic; }
+    img { max-width: 100%; }
+    h2 { margin-top: 2rem; }
+    ol { padding-left: 1.5rem; }
+    li { margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+  <article>${thesis}</article>
+  ${bibliography}
+</body>
+</html>`;
+    
+    const blob = new Blob([fullHTML], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `thesis_${new Date().toISOString().split('T')[0]}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  getPlainTextContent() {
+    // Clone the editor content
+    const clone = this.thesisEditor.cloneNode(true);
+    
+    // Replace images with placeholder text
+    clone.querySelectorAll('figure').forEach((figure, index) => {
+      const caption = figure.querySelector('figcaption')?.textContent || `Image ${index + 1}`;
+      figure.replaceWith(`[${caption}]`);
+    });
+    
+    // Replace br with newlines
+    clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    
+    // Get text content
+    return clone.textContent || clone.innerText || '';
   }
 }
 
