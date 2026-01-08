@@ -3,3 +3,4 @@ paper_db/
 results/
 node_modules/
 *.pyc
+data/

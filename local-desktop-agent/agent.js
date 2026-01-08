@@ -56,6 +56,8 @@ class ResearchAgent {
     this.saveApiKeyBtn.addEventListener('click', () => this.saveApiKey());
     this.searchInput.addEventListener('input', () => this.filterPapers());
     this.presentationFilter.addEventListener('change', () => this.filterPapers());
+    this.findRelevantPapersBtn = document.getElementById('find-relevant-papers-btn');
+    this.findRelevantPapersBtn.addEventListener('click', () => this.findRelevantPapersFromThesis());
     this.sendBtn.addEventListener('click', () => this.sendMessage());
     this.clearBtn.addEventListener('click', () => this.clearChat());
     
@@ -66,6 +68,7 @@ class ResearchAgent {
         this.sendMessage();
       }
     });
+    
   }
 
   async loadPapers() {
@@ -139,7 +142,7 @@ class ResearchAgent {
     this.paperList.innerHTML = this.filteredPapers.map((paper, index) => {
       const title = paper.title || 'Untitled';
       const abstract = paper.abstract ? 
-        (paper.abstract.length > 150 ? paper.abstract.substring(0, 150) + '...' : paper.abstract) : 
+        (paper.abstract.length > 150 ? this.cleanAbstract(paper.abstract).substring(0, 150) + '...' : this.cleanAbstract(paper.abstract)) : 
         'No abstract available';
       const venue = paper.venue || 'Unknown venue';
       const presentation = paper.presentation ? ` • ${paper.presentation}` : '';
@@ -206,17 +209,23 @@ class ResearchAgent {
     });
   }
 
-  async downloadPDF(forumId, paperIndex) {
+  async downloadPDF(forumId, paperIndex, silent = false) {
     if (!forumId) {
-      alert('No forum ID available for this paper');
+      if (!silent) {
+        alert('No forum ID available for this paper');
+      }
       return;
     }
 
-    const paper = this.filteredPapers[paperIndex];
-    const title = paper.title || 'Unknown';
+    const paper = paperIndex >= 0 ? this.filteredPapers[paperIndex] : 
+                  (this.papers.find(p => p.forum === forumId) || 
+                   (this.loadedContexts[forumId] && this.loadedContexts[forumId].paper));
+    const title = paper ? (paper.title || 'Unknown') : 'Unknown';
     
-    // Show downloading status
-    this.addMessage('agent', `Downloading PDF for: ${title}...`);
+    if (!silent) {
+      // Show downloading status
+      this.addMessage('agent', `Downloading PDF for: ${title}...`);
+    }
 
     try {
       if (window.electronAPI && window.electronAPI.downloadPDF) {
@@ -226,30 +235,62 @@ class ResearchAgent {
           throw new Error(result.error);
         }
         
-        const message = result.cached 
-          ? `✓ PDF already exists locally for: ${title}`
-          : `✓ PDF downloaded successfully for: ${title}`;
-        this.addMessage('agent', message);
+        if (!silent) {
+          const message = result.cached 
+            ? `✓ PDF already exists locally for: ${title}`
+            : `✓ PDF downloaded successfully for: ${title}`;
+          this.addMessage('agent', message);
+        }
+        
+        return { success: true, cached: result.cached };
       } else {
         throw new Error('Electron API not available');
       }
     } catch (error) {
       console.error('Error downloading PDF:', error);
-      this.addMessage('agent', `Error downloading PDF: ${error.message}`);
+      if (!silent) {
+        this.addMessage('agent', `Error downloading PDF: ${error.message}`);
+      }
+      return { success: false, error: error.message };
     }
   }
 
-  async loadPDFContext(forumId, paperIndex) {
+  async loadPDFContext(forumId, paperIndex, silent = false) {
     if (!forumId) {
-      alert('No forum ID available for this paper');
+      if (!silent) {
+        alert('No forum ID available for this paper');
+      }
       return;
     }
 
-    const paper = this.filteredPapers[paperIndex];
+    // Get paper from filteredPapers or all papers
+    let paper = null;
+    if (paperIndex >= 0 && paperIndex < this.filteredPapers.length) {
+      paper = this.filteredPapers[paperIndex];
+    } else if (this.loadedContexts[forumId] && this.loadedContexts[forumId].paper) {
+      paper = this.loadedContexts[forumId].paper;
+    } else {
+      // Try to find in all papers
+      const allPaperIndex = this.papers.findIndex(p => p.forum === forumId);
+      if (allPaperIndex !== -1) {
+        paper = this.papers[allPaperIndex];
+      }
+    }
+    
+    if (!paper) {
+      if (!silent) {
+        this.addMessage('agent', `Error: Could not find paper data for forum ID: ${forumId}`);
+      }
+      return;
+    }
+    
     const title = paper.title || 'Unknown';
     
-    // Show loading status
-    const loadingId = this.addMessage('agent', `Loading PDF context for: ${title}...`, true);
+    let loadingId = null;
+    if (!silent) {
+      // Show loading status
+      loadingId = this.addMessage('agent', `Loading PDF context for: ${title}...`, true);
+    }
 
     try {
       // First ensure PDF is downloaded
@@ -268,24 +309,28 @@ class ResearchAgent {
           throw new Error(result.error);
         }
         
-        // Store context
+        // Store context (upgrade from abstract to full paper if it was abstract-only)
         this.loadedContexts[forumId] = {
           title: title,
           text: result.text,
           numPages: result.numPages,
-          loadedAt: new Date().toISOString()
+          type: 'full',
+          loadedAt: new Date().toISOString(),
+          forumId: forumId,
+          paper: paper
         };
         
         // Update UI to show context is loaded
         this.renderPapers();
         this.updateLoadedContextsUI();
         
-        // Get abstract from paper data
-        const abstract = paper.abstract || 'No abstract available';
-        const abstractPreview = abstract.length > 500 ? abstract.substring(0, 500) + '...' : abstract;
-        
-        const loadedCount = Object.keys(this.loadedContexts).length;
-        this.updateMessage(loadingId, `
+        if (!silent) {
+          // Get abstract from paper data
+          const abstract = this.cleanAbstract(paper.abstract || 'No abstract available');
+          const abstractPreview = abstract.length > 500 ? abstract.substring(0, 500) + '...' : abstract;
+          
+          const loadedCount = Object.keys(this.loadedContexts).length;
+          this.updateMessage(loadingId, `
 **PDF Context Loaded: ${title}**
 
 - **Pages**: ${result.numPages}
@@ -295,13 +340,19 @@ class ResearchAgent {
 **Currently loaded papers**: ${loadedCount} ${loadedCount === 1 ? 'paper' : 'papers'}
 
 You can now ask questions about ${loadedCount === 1 ? 'this paper' : 'these papers'}, and I'll use ${loadedCount === 1 ? 'its' : 'their'} content as context!
-        `);
+          `);
+        }
+        
+        return { success: true };
       } else {
         throw new Error('Electron API not available');
       }
     } catch (error) {
       console.error('Error loading PDF context:', error);
-      this.updateMessage(loadingId, `Error loading PDF context: ${error.message}`);
+      if (!silent && loadingId) {
+        this.updateMessage(loadingId, `Error loading PDF context: ${error.message}`);
+      }
+      return { success: false, error: error.message };
     }
   }
 
@@ -344,13 +395,30 @@ ${remainingCount === 0 ? 'No papers are currently loaded as context.' : `You can
     // List all loaded papers with remove buttons
     const contextsList = Object.entries(this.loadedContexts)
       .map(([forumId, context]) => {
+        const contextType = context.type === 'abstract' ? 'Abstract Only' : 'Full Paper';
+        const metaInfo = context.type === 'abstract' 
+          ? `${(context.text.length / 1000).toFixed(1)}k chars`
+          : `${context.numPages} pages • ${(context.text.length / 1000).toFixed(1)}k chars`;
+        
+        const hasForumId = forumId && forumId.length > 0 && !forumId.startsWith('index_');
+        const loadFullButton = (context.type === 'abstract' && hasForumId) 
+          ? `<button class="btn-load-full-from-context btn-small" data-forum="${forumId}" data-title="${this.escapeHtml(context.title)}" title="Load full paper (download and parse PDF)">📄 Load Full</button>`
+          : '';
+        const useAbstractButton = (context.type === 'full' && context.paper && context.paper.abstract) 
+          ? `<button class="btn-use-abstract-only btn-small" data-forum="${forumId}" data-title="${this.escapeHtml(context.title)}" title="Switch to abstract only">📝 Use Abstract Only</button>`
+          : '';
+        
         return `
           <div class="loaded-context-item" data-forum="${forumId}">
             <div class="loaded-context-info">
               <div class="loaded-context-title">${this.escapeHtml(context.title)}</div>
-              <div class="loaded-context-meta">${context.numPages} pages • ${(context.text.length / 1000).toFixed(1)}k chars</div>
+              <div class="loaded-context-meta">${contextType} • ${metaInfo}</div>
             </div>
-            <button class="btn-remove-context" data-forum="${forumId}" title="Remove this context">×</button>
+            <div class="loaded-context-actions">
+              ${loadFullButton}
+              ${useAbstractButton}
+              <button class="btn-remove-context" data-forum="${forumId}" title="Remove this context">×</button>
+            </div>
           </div>
         `;
       })
@@ -358,15 +426,108 @@ ${remainingCount === 0 ? 'No papers are currently loaded as context.' : `You can
     
     this.loadedContextsList.innerHTML = contextsList || '<div class="empty-state">No papers loaded</div>';
     
+    // Add event listeners for use abstract only buttons
+    this.loadedContextsList.querySelectorAll('.btn-use-abstract-only').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const forumId = btn.getAttribute('data-forum');
+        const title = btn.getAttribute('data-title');
+        const context = this.loadedContexts[forumId];
+        
+        if (context && context.type === 'full' && context.paper && context.paper.abstract) {
+          // Convert to abstract-only
+          const abstract = this.cleanAbstract(context.paper.abstract || 'No abstract available');
+          
+          this.loadedContexts[forumId] = {
+            title: title,
+            text: `Title: ${title}\n\nAbstract:\n${abstract}`,
+            type: 'abstract',
+            loadedAt: new Date().toISOString(),
+            forumId: forumId,
+            paper: context.paper
+          };
+          
+          // Update UI
+          this.renderPapers();
+          this.updateLoadedContextsUI();
+        }
+      });
+    });
+    
+    // Add event listeners for load full paper buttons
+    this.loadedContextsList.querySelectorAll('.btn-load-full-from-context').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const forumId = btn.getAttribute('data-forum');
+        const title = btn.getAttribute('data-title');
+        
+        // Update button state
+        btn.disabled = true;
+        btn.textContent = '📄 Loading...';
+        
+        // Find paper in filteredPapers or all papers
+        let paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+        let paper = null;
+        
+        if (paperIndex !== -1) {
+          paper = this.filteredPapers[paperIndex];
+        } else {
+          // Try to find in all papers
+          const allPaperIndex = this.papers.findIndex(p => p.forum === forumId);
+          if (allPaperIndex !== -1) {
+            paper = this.papers[allPaperIndex];
+            paperIndex = allPaperIndex;
+          }
+        }
+        
+        let result = null;
+        if (paper) {
+          result = await this.loadPDFContext(forumId, paperIndex, true);
+        } else {
+          // If paper not found in lists, try to load using the context's paper data
+          const context = this.loadedContexts[forumId];
+          if (context && context.paper) {
+            // Temporarily add to filteredPapers for the load function
+            const tempIndex = this.filteredPapers.length;
+            this.filteredPapers.push(context.paper);
+            result = await this.loadPDFContext(forumId, tempIndex, true);
+            // Remove if it wasn't originally there
+            if (paperIndex === -1) {
+              this.filteredPapers.pop();
+            }
+          }
+        }
+        
+        // Update button state based on result
+        if (result && result.success) {
+          btn.textContent = '✓ Loaded';
+          btn.style.backgroundColor = '#27ae60';
+          btn.disabled = true; // Keep disabled since it's now loaded
+        } else {
+          btn.textContent = '📄 Load Full';
+          btn.disabled = false;
+          console.error('Load failed:', result?.error);
+        }
+      });
+    });
+    
     // Add event listeners to remove buttons
     this.loadedContextsList.querySelectorAll('.btn-remove-context').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const forumId = btn.getAttribute('data-forum');
         // Find the paper index
-        const paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+        let paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+        if (paperIndex === -1) {
+          // Try all papers
+          paperIndex = this.papers.findIndex(p => p.forum === forumId);
+        }
         if (paperIndex !== -1) {
           this.unloadPDFContext(forumId, paperIndex);
+        } else {
+          // Just remove from contexts if paper not found
+          delete this.loadedContexts[forumId];
+          this.updateLoadedContextsUI();
         }
       });
     });
@@ -385,6 +546,7 @@ ${remainingCount === 0 ? 'No papers are currently loaded as context.' : `You can
       this.toggleContextsBtn.title = 'Expand';
     }
   }
+
 
   togglePaperDbPanel() {
     this.paperDbExpanded = !this.paperDbExpanded;
@@ -455,7 +617,7 @@ ${remainingCount === 0 ? 'No papers are currently loaded as context.' : `You can
 - **Venue**: ${paper.venue || 'N/A'}
 - **Presentation**: ${paper.presentation || 'N/A'}
 - **Authors**: ${paper.authors ? paper.authors.join(', ') : 'N/A'}
-- **Abstract**: ${paper.abstract ? paper.abstract.substring(0, 500) + '...' : 'N/A'}
+- **Abstract**: ${paper.abstract ? this.cleanAbstract(paper.abstract).substring(0, 500) + '...' : 'N/A'}
 - **PDF URL**: ${pdfUrl}
 - **Forum ID**: ${forumId}
 
@@ -618,6 +780,649 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     }
   }
 
+  async findRelevantPapersFromThesis() {
+    // Get thesis content from the thesis editor
+    const thesisEditor = document.getElementById('thesis-editor');
+    if (!thesisEditor) {
+      this.addMessage('agent', 'Error: Could not find thesis editor. Make sure you are on the Thesis Editor tab.');
+      return;
+    }
+
+    // Get plain text from thesis (strip HTML)
+    const thesisText = this.getPlainTextFromElement(thesisEditor);
+    
+    if (!thesisText || thesisText.trim().length < 50) {
+      this.addMessage('agent', 'Your thesis appears to be empty or too short. Please write some content in the thesis editor first.');
+      return;
+    }
+
+    if (this.papers.length === 0) {
+      this.addMessage('agent', 'Please load papers first by selecting a dataset and clicking "Load Papers".');
+      return;
+    }
+
+    if (!this.geminiApiKey) {
+      this.addMessage('agent', 'Please set your Gemini API key in Settings first. Embedding-based search requires an API key.');
+      return;
+    }
+
+    // Show searching message
+    const searchingId = this.addMessage('agent', 'Computing embeddings and searching for relevant papers...', true);
+
+    try {
+      // Get or compute thesis embedding
+      this.updateMessage(searchingId, 'Step 1/3: Computing thesis embedding...');
+      const thesisEmbedding = await this.getOrComputeThesisEmbedding(thesisText);
+      if (!thesisEmbedding) {
+        this.updateMessage(searchingId, 'Error: Failed to compute thesis embedding. Please check your API key.');
+        return;
+      }
+
+      // Get or compute paper embeddings with progress callback (only for filtered papers)
+      let cachedCount = 0;
+      const papersToSearch = this.filteredPapers.length > 0 ? this.filteredPapers : this.papers;
+      const progressCallback = (current, total, percentage, fromCache = 0) => {
+        const message = fromCache > 0 
+          ? `Step 2/3: Computing embeddings for ${papersToSearch.length} papers... (${fromCache} cached, ${current - fromCache} computed)`
+          : `Step 2/3: Computing embeddings for ${papersToSearch.length} papers...`;
+        this.updateMessageWithProgress(searchingId, message, current, total, percentage);
+      };
+      const paperEmbeddings = await this.getOrComputePaperEmbeddings(progressCallback, papersToSearch);
+      if (!paperEmbeddings || paperEmbeddings.length === 0) {
+        this.updateMessage(searchingId, 'Error: Failed to compute paper embeddings.');
+        return;
+      }
+
+      // Compute similarity scores
+      this.updateMessage(searchingId, 'Step 3/3: Computing similarity scores...');
+      const relevantPapers = this.computeSimilarityScores(thesisEmbedding, paperEmbeddings);
+      
+      // Display results
+      this.displayRelevantPapers(relevantPapers, searchingId);
+    } catch (error) {
+      console.error('Error in semantic search:', error);
+      this.updateMessage(searchingId, `Error: ${error.message}`);
+    }
+  }
+
+  async getOrComputeThesisEmbedding(thesisText) {
+    // Compute content hash for cache validation
+    const contentHash = this.computeHash(thesisText);
+    
+    // Check cache first
+    if (window.electronAPI && window.electronAPI.loadEmbeddings) {
+      const cached = await window.electronAPI.loadEmbeddings({ type: 'thesis' });
+      if (cached.success && cached.embeddings && cached.embeddings.length > 0) {
+        const cachedItem = cached.embeddings[0];
+        // Check if cached embedding matches current thesis by hash
+        if (cachedItem.contentHash === contentHash) {
+          return cachedItem.embedding;
+        }
+      }
+    }
+
+    // Compute new embedding
+    if (window.electronAPI && window.electronAPI.getEmbeddings) {
+      const result = await window.electronAPI.getEmbeddings({
+        apiKey: this.geminiApiKey,
+        texts: [thesisText]
+      });
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (result.embeddings && result.embeddings.length > 0) {
+        const embedding = result.embeddings[0];
+        
+        // Cache the embedding with content hash
+        if (window.electronAPI && window.electronAPI.saveEmbeddings) {
+          await window.electronAPI.saveEmbeddings({
+            dataset: 'thesis',
+            type: 'thesis',
+            embeddings: [{
+              text: thesisText.substring(0, 100),
+              embedding: embedding,
+              contentHash: contentHash
+            }]
+          });
+        }
+
+        return embedding;
+      }
+    }
+
+    return null;
+  }
+
+  computeHash(text) {
+    // Simple hash function for cache validation
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash.toString(36);
+  }
+
+  async getOrComputePaperEmbeddings(progressCallback = null, papersToProcess = null) {
+    // progressCallback signature: (current, total, percentage, fromCache)
+    // papersToProcess: optional array of papers to process (defaults to all papers)
+    if (!this.currentDataset) {
+      return null;
+    }
+
+    // Use provided papers or default to all papers
+    const targetPapers = papersToProcess || this.papers;
+    
+    // Create a map of target papers by forum ID for quick lookup
+    const targetPapersMap = new Map();
+    targetPapers.forEach((paper, idx) => {
+      const forumId = paper.forum || `index_${idx}`;
+      targetPapersMap.set(forumId, { paper, originalIndex: this.papers.findIndex(p => p.forum === paper.forum) });
+    });
+
+    // Load cached embeddings and create a map by forum ID
+    const cachedEmbeddingsMap = new Map();
+    let cachedCount = 0;
+    
+    if (window.electronAPI && window.electronAPI.loadEmbeddings) {
+      const cached = await window.electronAPI.loadEmbeddings({
+        dataset: this.currentDataset,
+        type: 'papers'
+      });
+
+      if (cached.success && cached.embeddings) {
+        // Build a map of cached embeddings by forum ID (only for target papers)
+        cached.embeddings.forEach(item => {
+          let forumId = null;
+          if (item.forumId) {
+            forumId = item.forumId;
+          } else if (item.paperIndex !== undefined && this.papers[item.paperIndex]) {
+            // Fallback: use paperIndex if forumId not available
+            const paper = this.papers[item.paperIndex];
+            forumId = paper.forum || `index_${item.paperIndex}`;
+          }
+          
+          // Only include if this paper is in our target set
+          if (forumId && targetPapersMap.has(forumId)) {
+            cachedEmbeddingsMap.set(forumId, item);
+          }
+        });
+        cachedCount = cachedEmbeddingsMap.size;
+      }
+    }
+
+    // Identify papers that need embeddings (only from target papers)
+    const papersToCompute = [];
+    const papersToComputeIndices = [];
+    
+    targetPapers.forEach((paper, idx) => {
+      const forumId = paper.forum || `index_${idx}`;
+      if (!cachedEmbeddingsMap.has(forumId)) {
+        papersToCompute.push(paper);
+        // Find original index in this.papers array
+        const originalIndex = this.papers.findIndex(p => p.forum === paper.forum);
+        papersToComputeIndices.push(originalIndex !== -1 ? originalIndex : idx);
+      }
+    });
+
+    // If all target papers are cached, return immediately
+    if (papersToCompute.length === 0) {
+      if (progressCallback) {
+        progressCallback(targetPapers.length, targetPapers.length, 100, cachedCount);
+      }
+      
+      // Map cached embeddings back to target papers
+      return targetPapers.map((paper, idx) => {
+        const forumId = paper.forum || `index_${idx}`;
+        const cached = cachedEmbeddingsMap.get(forumId);
+        const originalIndex = this.papers.findIndex(p => p.forum === paper.forum);
+        const paperIndex = originalIndex !== -1 ? originalIndex : idx;
+        
+        if (cached) {
+          return {
+            paperIndex: paperIndex,
+            paper: paper,
+            text: cached.text || '',
+            embedding: cached.embedding
+          };
+        }
+        return null;
+      }).filter(item => item !== null);
+    }
+
+    // Show resuming message if we have cached embeddings
+    if (cachedCount > 0 && progressCallback) {
+      progressCallback(cachedCount, targetPapers.length, Math.round((cachedCount / targetPapers.length) * 100), cachedCount);
+      // Small delay to show the resuming state
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // Compute embeddings only for missing papers
+    const allEmbeddings = [];
+    
+    // First, add all cached embeddings for target papers
+    targetPapers.forEach((paper, idx) => {
+      const forumId = paper.forum || `index_${idx}`;
+      const cached = cachedEmbeddingsMap.get(forumId);
+      const originalIndex = this.papers.findIndex(p => p.forum === paper.forum);
+      const paperIndex = originalIndex !== -1 ? originalIndex : idx;
+      
+      if (cached) {
+        allEmbeddings.push({
+          paperIndex: paperIndex,
+          paper: paper,
+          text: cached.text || '',
+          embedding: cached.embedding
+        });
+      }
+    });
+
+    // Compute embeddings for missing papers
+    if (window.electronAPI && window.electronAPI.getEmbeddings && papersToCompute.length > 0) {
+      // Prepare texts: title + abstract for each paper that needs computing
+      const texts = papersToCompute.map(paper => {
+        const title = paper.title || '';
+        const abstract = paper.abstract || '';
+        return `${title}\n\n${abstract}`.trim();
+      });
+
+      // Get embeddings in batches to avoid API limits
+      const batchSize = 10;
+      const totalBatches = Math.ceil(texts.length / batchSize);
+      let computedCount = 0;
+      
+      for (let i = 0; i < texts.length; i += batchSize) {
+        const batch = texts.slice(i, i + batchSize);
+        const batchIndices = papersToComputeIndices.slice(i, i + batchSize);
+        
+        const result = await window.electronAPI.getEmbeddings({
+          apiKey: this.geminiApiKey,
+          texts: batch
+        });
+
+        if (result.error) {
+          throw new Error(result.error);
+        }
+
+        if (result.embeddings) {
+          // Map embeddings back to papers with metadata
+          result.embeddings.forEach((embedding, idx) => {
+            const paperIndex = batchIndices[idx];
+            const paper = this.papers[paperIndex];
+            const forumId = paper.forum || `index_${paperIndex}`;
+            
+            allEmbeddings.push({
+              paperIndex: paperIndex,
+              paper: paper,
+              text: batch[idx],
+              embedding: embedding
+            });
+            
+            computedCount++;
+          });
+        }
+
+        // Update progress callback
+        if (progressCallback) {
+          const totalProcessed = cachedCount + computedCount;
+          const percentage = Math.round((totalProcessed / targetPapers.length) * 100);
+          progressCallback(totalProcessed, targetPapers.length, percentage, cachedCount);
+        }
+
+        // Small delay to avoid rate limiting
+        if (i + batchSize < texts.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      // Cache all embeddings (cached + newly computed)
+      // Note: We save all embeddings from the full dataset cache, not just target papers
+      // This ensures we maintain the full cache for future use
+      if (window.electronAPI && window.electronAPI.saveEmbeddings) {
+        // Load full cache to merge with new embeddings
+        const fullCache = await window.electronAPI.loadEmbeddings({
+          dataset: this.currentDataset,
+          type: 'papers'
+        });
+        
+        const fullCacheMap = new Map();
+        if (fullCache.success && fullCache.embeddings) {
+          fullCache.embeddings.forEach(item => {
+            const forumId = item.forumId || (item.paperIndex !== undefined && this.papers[item.paperIndex] 
+              ? (this.papers[item.paperIndex].forum || `index_${item.paperIndex}`) 
+              : null);
+            if (forumId) {
+              fullCacheMap.set(forumId, item);
+            }
+          });
+        }
+        
+        // Add newly computed embeddings to the cache map
+        allEmbeddings.forEach(item => {
+          const forumId = item.paper.forum || `index_${item.paperIndex}`;
+          fullCacheMap.set(forumId, {
+            forumId: forumId,
+            text: item.text.substring(0, 200),
+            embedding: item.embedding,
+            paperIndex: item.paperIndex
+          });
+        });
+        
+        // Save the complete cache (all papers, not just target)
+        const embeddingsToSave = Array.from(fullCacheMap.values());
+        
+        await window.electronAPI.saveEmbeddings({
+          dataset: this.currentDataset,
+          type: 'papers',
+          embeddings: embeddingsToSave
+        });
+      }
+    }
+
+    // Return embeddings for target papers only
+    return allEmbeddings.filter(item => item !== null && item !== undefined);
+  }
+
+  computeSimilarityScores(thesisEmbedding, paperEmbeddings) {
+    const scoredPapers = paperEmbeddings.map(item => {
+      const similarity = this.cosineSimilarity(thesisEmbedding, item.embedding);
+      return {
+        paper: item.paper,
+        score: similarity,
+        index: item.paperIndex
+      };
+    })
+    .filter(item => item.score > 0) // Only papers with positive similarity
+    .sort((a, b) => b.score - a.score) // Sort by similarity (higher is better)
+    .slice(0, 20); // Top 20 most relevant
+
+    return scoredPapers;
+  }
+
+  cosineSimilarity(vecA, vecB) {
+    if (vecA.length !== vecB.length) {
+      console.error('Vector length mismatch:', vecA.length, vecB.length);
+      return 0;
+    }
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+
+    normA = Math.sqrt(normA);
+    normB = Math.sqrt(normB);
+
+    if (normA === 0 || normB === 0) {
+      return 0;
+    }
+
+    return dotProduct / (normA * normB);
+  }
+
+  getPlainTextFromElement(element) {
+    // Clone the element to avoid modifying the original
+    const clone = element.cloneNode(true);
+    
+    // Remove images and figures (keep only text)
+    clone.querySelectorAll('figure, img').forEach(el => el.remove());
+    
+    // Get text content
+    return clone.textContent || clone.innerText || '';
+  }
+
+  cleanAbstract(abstract) {
+    if (!abstract) return abstract;
+    
+    // Remove LaTeX math delimiters
+    let cleaned = abstract
+      // Remove block math $$...$$
+      .replace(/\$\$[\s\S]*?\$\$/g, '')
+      // Remove inline math $...$
+      .replace(/\$[^$]*?\$/g, '')
+      // Remove LaTeX math environments \(...\) and \[...\]
+      .replace(/\\\([\s\S]*?\\\)/g, '')
+      .replace(/\\\[[\s\S]*?\\\]/g, '')
+      // Remove LaTeX commands (backslash followed by letters)
+      .replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1') // \command{content} -> content
+      .replace(/\\[a-zA-Z]+/g, '') // Remove standalone commands
+      // Remove LaTeX special characters but keep the content
+      .replace(/\{|\}/g, '') // Remove braces
+      .replace(/\^/g, '') // Remove superscript markers
+      .replace(/_/g, ' ') // Replace subscript markers with space
+      .replace(/`/g, '') // Remove backticks
+      // Clean up multiple spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    return cleaned;
+  }
+
+
+  displayRelevantPapers(relevantPapers, messageId) {
+    if (relevantPapers.length === 0) {
+      this.updateMessage(messageId, `
+**No Relevant Papers Found**
+
+I couldn't find papers that match your thesis content. Try:
+- Adding more content to your thesis
+- Using more specific technical terms
+- Loading a different dataset
+      `);
+      return;
+    }
+
+    // Automatically add abstracts to context
+    relevantPapers.forEach((item) => {
+      const paper = item.paper;
+      const forumId = paper.forum || `index_${item.index}`;
+      
+      // Only add if not already loaded (as full paper)
+      if (!this.loadedContexts[forumId] || this.loadedContexts[forumId].type === 'abstract') {
+        const abstract = this.cleanAbstract(paper.abstract || 'No abstract available');
+        const title = paper.title || 'Untitled';
+        
+        this.loadedContexts[forumId] = {
+          title: title,
+          text: `Title: ${title}\n\nAbstract:\n${abstract}`,
+          type: 'abstract',
+          loadedAt: new Date().toISOString(),
+          forumId: forumId,
+          paper: paper
+        };
+      }
+    });
+
+    // Update UI to show loaded contexts
+    this.updateLoadedContextsUI();
+
+    // Build response with full abstracts - add unique text markers for button insertion
+    let response = `**Found ${relevantPapers.length} Relevant Papers Based on Your Thesis:**\n\n`;
+    response += `*Abstracts have been automatically added to context. You can download PDFs or load full papers below.*\n\n`;
+    
+    relevantPapers.forEach((item, idx) => {
+      const paper = item.paper;
+      const forumId = paper.forum || `index_${item.index}`;
+      const title = paper.title || 'Untitled';
+      const abstract = this.cleanAbstract(paper.abstract || 'No abstract available');
+      const venue = paper.venue || 'Unknown venue';
+      
+      const similarityPercent = (item.score * 100).toFixed(1);
+      response += `${idx + 1}. **${title}** (Similarity: ${similarityPercent}%)\n`;
+      response += `   ${venue}\n`;
+      response += `   **Abstract:** ${abstract}\n`;
+      // Add a unique text marker on its own line for easier insertion
+      response += `\n   [PAPER_BUTTON_MARKER_${idx}_${forumId.substring(0, 8)}]\n\n`;
+    });
+    
+    response += `\n*The paper list has been filtered to show these relevant papers.*`;
+    
+    this.updateMessage(messageId, response);
+    
+    // Add buttons right after each abstract using the text markers
+    setTimeout(() => {
+      const messageDiv = document.getElementById(messageId);
+      if (messageDiv) {
+        const contentDiv = messageDiv.querySelector('.message-content');
+        if (contentDiv) {
+          // Process papers in order, but track inserted buttons to avoid duplicates
+          const insertedButtons = new Set();
+          
+          relevantPapers.forEach((item, idx) => {
+            const paper = item.paper;
+            const forumId = paper.forum || `index_${item.index}`;
+            const title = paper.title || 'Untitled';
+            const abstract = this.cleanAbstract(paper.abstract || '');
+            const hasForumId = forumId && forumId.length > 0 && !forumId.startsWith('index_');
+            
+            if (hasForumId && abstract) {
+              // Find the marker text in the DOM
+              const markerPattern = `PAPER_BUTTON_MARKER_${idx}_${forumId.substring(0, 8)}`;
+              const fullMarker = `[${markerPattern}]`;
+              const walker = document.createTreeWalker(
+                contentDiv,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+              );
+              
+              let textNode = null;
+              let found = false;
+              
+              // First, find and remove all markers
+              while (textNode = walker.nextNode()) {
+                if (textNode.textContent.includes(markerPattern)) {
+                  found = true;
+                  const parentElement = textNode.parentElement;
+                  
+                  // Remove the marker from text
+                  textNode.textContent = textNode.textContent.replace(fullMarker, '').trim();
+                  
+                  // Only insert button if we haven't inserted one for this paper yet
+                  if (!insertedButtons.has(idx)) {
+                    // Create button container
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.className = 'paper-action-buttons-inline';
+                    buttonContainer.style.marginTop = '0.5rem';
+                    buttonContainer.style.marginBottom = '1rem';
+                    buttonContainer.style.paddingLeft = '0';
+                    
+                    const loadBtn = document.createElement('button');
+                    loadBtn.className = 'btn-inline btn-load-full-paper';
+                    loadBtn.setAttribute('data-forum', forumId);
+                    loadBtn.setAttribute('data-title', title);
+                    loadBtn.textContent = '📄 Load Full Paper';
+                    
+                    buttonContainer.appendChild(loadBtn);
+                    
+                    // Insert button container right after the parent element containing the marker
+                    if (parentElement && parentElement.parentNode) {
+                      parentElement.parentNode.insertBefore(buttonContainer, parentElement.nextSibling);
+                      insertedButtons.add(idx);
+                    } else if (parentElement) {
+                      // If no parent, append to contentDiv
+                      contentDiv.appendChild(buttonContainer);
+                      insertedButtons.add(idx);
+                    }
+                  }
+                  
+                  break; // Found and processed, move to next paper
+                }
+              }
+              
+              if (!found) {
+                console.warn(`Could not find marker for paper ${idx}: ${title}`);
+              }
+            } else {
+              // Remove marker even if no button
+              const markerPattern = `PAPER_BUTTON_MARKER_${idx}_`;
+              const fullMarkerPattern = new RegExp(`\\[${markerPattern}[^\\]]+\\]`, 'g');
+              const walker = document.createTreeWalker(
+                contentDiv,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+              );
+              
+              let textNode = null;
+              while (textNode = walker.nextNode()) {
+                if (textNode.textContent.includes(markerPattern)) {
+                  textNode.textContent = textNode.textContent.replace(fullMarkerPattern, '').trim();
+                  break;
+                }
+              }
+            }
+          });
+          
+          // Add event listeners for load buttons
+          // Load full paper buttons
+          contentDiv.querySelectorAll('.btn-load-full-paper').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const forumId = btn.getAttribute('data-forum');
+              const title = btn.getAttribute('data-title');
+              
+              // Update button state
+              btn.disabled = true;
+              btn.textContent = '📄 Loading...';
+              
+              // Find paper index
+              let paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+              if (paperIndex === -1) {
+                // Try all papers
+                paperIndex = this.papers.findIndex(p => p.forum === forumId);
+              }
+              
+              let result = null;
+              if (paperIndex !== -1) {
+                result = await this.loadPDFContext(forumId, paperIndex, true);
+              } else {
+                // Use context's paper data if available
+                const context = this.loadedContexts[forumId];
+                if (context && context.paper) {
+                  const tempIndex = this.filteredPapers.length;
+                  this.filteredPapers.push(context.paper);
+                  result = await this.loadPDFContext(forumId, tempIndex, true);
+                  this.filteredPapers.pop();
+                }
+              }
+              
+              // Update button state based on result
+              if (result && result.success) {
+                btn.textContent = '✓ Loaded';
+                btn.style.backgroundColor = '#27ae60';
+                // Button will stay in loaded state since context is now loaded
+              } else {
+                btn.textContent = '📄 Load Full Paper';
+                btn.disabled = false;
+                // Show error in button tooltip or console
+                console.error('Load failed:', result?.error);
+              }
+            });
+          });
+        }
+      }
+    }, 200);
+    
+    // Also update the paper list to show these papers
+    // Filter to show only relevant papers
+    this.filteredPapers = relevantPapers.map(item => item.paper);
+    this.renderPapers();
+    
+    // Update search input to show we're filtering
+    this.searchInput.value = 'Relevant to thesis';
+    this.updatePaperCount();
+  }
+
   processQuestion(question) {
     const lowerQuestion = question.toLowerCase();
 
@@ -670,10 +1475,13 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       const questionWords = questionLower.split(/\s+/).filter(w => w.length > 3);
       const relevantSections = this.findRelevantSections(text, questionWords);
       
+      const contextType = context.type === 'abstract' ? 'Abstract Only' : 'Full Paper';
+      const pageInfo = context.numPages ? ` (${context.numPages} pages)` : '';
+      
       if (papersCount > 1) {
-        response += `### Paper ${idx + 1}: ${paperTitle} (${context.numPages} pages)\n\n`;
+        response += `### Paper ${idx + 1}: ${paperTitle}${pageInfo} - ${contextType}\n\n`;
       } else {
-        response += `**${paperTitle}** (${context.numPages} pages):\n\n`;
+        response += `**${paperTitle}**${pageInfo} - ${contextType}:\n\n`;
       }
       
       if (relevantSections.length > 0) {
@@ -808,7 +1616,7 @@ Based on ${this.filteredPapers.length} papers, the main research directions appe
     }
 
     const paperList = matchingPapers.map(({ paper, score }, idx) => {
-      return `${idx + 1}. **${paper.title || 'Untitled'}** (relevance: ${score})\n   ${paper.venue || 'Unknown venue'}\n   ${paper.abstract ? paper.abstract.substring(0, 200) + '...' : 'No abstract'}`;
+      return `${idx + 1}. **${paper.title || 'Untitled'}** (relevance: ${score})\n   ${paper.venue || 'Unknown venue'}\n   ${paper.abstract ? this.cleanAbstract(paper.abstract).substring(0, 200) + '...' : 'No abstract'}`;
     }).join('\n\n');
 
     return `
@@ -974,6 +1782,32 @@ Try one of these queries, or ask a more specific question about the papers!
       const contentDiv = messageDiv.querySelector('.message-content');
       if (contentDiv) {
         contentDiv.innerHTML = this.formatMessage(newContent);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+      }
+    }
+  }
+
+  updateMessageWithProgress(messageId, message, current, total, percentage) {
+    const messageDiv = document.getElementById(messageId);
+    if (messageDiv) {
+      const contentDiv = messageDiv.querySelector('.message-content');
+      if (contentDiv) {
+        const escapedMessage = this.escapeHtml(message);
+        const progressBarHtml = `
+          <div style="margin-top: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <span style="font-size: 0.9rem; color: #666;">${escapedMessage}</span>
+              <span style="font-size: 0.9rem; color: #666; font-weight: 600;">${percentage}%</span>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" style="width: ${percentage}%"></div>
+            </div>
+            <div style="font-size: 0.85rem; color: #888; margin-top: 0.25rem;">
+              Processed ${current} of ${total} papers
+            </div>
+          </div>
+        `;
+        contentDiv.innerHTML = progressBarHtml;
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
       }
     }

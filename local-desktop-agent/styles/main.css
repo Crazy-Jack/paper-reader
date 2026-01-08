@@ -805,9 +805,11 @@ body {
 }
 
 .paper-list {
-  flex: 1;
+  flex: 0 0 auto;
   overflow-y: auto;
   padding: 1rem;
+  min-height: 200px;
+  max-height: 400px;
 }
 
 .paper-item {
@@ -909,10 +911,11 @@ body {
 }
 
 .loaded-contexts-list {
-  max-height: 150px;
+  max-height: 300px;
   overflow-y: auto;
   margin-bottom: 0.5rem;
 }
+
 
 .loaded-context-item {
   background: white;
@@ -943,6 +946,47 @@ body {
 .loaded-context-meta {
   font-size: 0.75rem;
   color: #666;
+}
+
+.loaded-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-load-full-from-context {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  border: 1px solid #3498db;
+  background-color: #3498db;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-load-full-from-context:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.btn-use-abstract-only {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  border: 1px solid #95a5a6;
+  background-color: #95a5a6;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-use-abstract-only:hover {
+  background-color: #7f8c8d;
+  border-color: #7f8c8d;
 }
 
 .btn-remove-context {
@@ -1064,6 +1108,45 @@ body {
 
 .message-content li {
   margin-bottom: 0.25rem;
+}
+
+.btn-inline {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid #3498db;
+  background-color: #3498db;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.btn-inline:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.btn-inline:active {
+  transform: scale(0.98);
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background-color: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 1px 3px rgba(52, 152, 219, 0.3);
 }
 
 .paper-reference {

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const crypto = require('crypto');
 
 let mainWindow;
 
@@ -286,6 +287,140 @@ app.whenReady().then(() => {
       return { apiKey: null };
     }
   });
+
+  // IPC handler for getting embeddings from Google API
+  ipcMain.handle('get-embeddings', async (event, { apiKey, texts }) => {
+    try {
+      if (!apiKey) {
+        return { error: 'API key not provided' };
+      }
+      
+      if (!texts || !Array.isArray(texts) || texts.length === 0) {
+        return { error: 'Texts array is required' };
+      }
+      
+      // Use REST API directly for embeddings (more reliable)
+      const embeddings = [];
+      
+      for (const text of texts) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`;
+          
+          const requestData = JSON.stringify({
+            content: {
+              parts: [{
+                text: text
+              }]
+            }
+          });
+          
+          const embedding = await new Promise((resolve, reject) => {
+            const req = https.request(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            }, (res) => {
+              let data = '';
+              
+              res.on('data', (chunk) => {
+                data += chunk;
+              });
+              
+              res.on('end', () => {
+                try {
+                  const result = JSON.parse(data);
+                  if (result.error) {
+                    reject(new Error(result.error.message || 'API error'));
+                  } else if (result.embedding && result.embedding.values) {
+                    resolve(result.embedding.values);
+                  } else {
+                    reject(new Error('Unexpected response format'));
+                  }
+                } catch (err) {
+                  reject(new Error(`Failed to parse response: ${err.message}`));
+                }
+              });
+            });
+            
+            req.on('error', (err) => {
+              reject(new Error(`Request failed: ${err.message}`));
+            });
+            
+            req.write(requestData);
+            req.end();
+          });
+          
+          embeddings.push(embedding);
+          
+          // Small delay to avoid rate limiting
+          if (texts.length > 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+        } catch (err) {
+          console.error('Error embedding text:', err);
+          return { error: `Failed to get embedding: ${err.message}` };
+        }
+      }
+      
+      return { success: true, embeddings };
+    } catch (error) {
+      console.error('Error getting embeddings:', error);
+      return { error: error.message || 'Failed to get embeddings' };
+    }
+  });
+
+  // IPC handler for saving embeddings cache
+  ipcMain.handle('save-embeddings', async (event, { dataset, embeddings, type }) => {
+    try {
+      const embeddingsDir = path.join(__dirname, 'data', 'embeddings');
+      if (!fs.existsSync(embeddingsDir)) {
+        fs.mkdirSync(embeddingsDir, { recursive: true });
+      }
+      
+      const filename = type === 'thesis' ? 'thesis_embeddings.json' : `${dataset}_embeddings.json`;
+      const filePath = path.join(embeddingsDir, filename);
+      
+      const data = {
+        dataset: dataset || 'thesis',
+        type: type || 'papers',
+        embeddings: embeddings,
+        timestamp: new Date().toISOString()
+      };
+      
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      
+      return { success: true, path: filePath };
+    } catch (error) {
+      console.error('Error saving embeddings:', error);
+      return { error: error.message || 'Failed to save embeddings' };
+    }
+  });
+
+  // IPC handler for loading embeddings cache
+  ipcMain.handle('load-embeddings', async (event, { dataset, type }) => {
+    try {
+      const embeddingsDir = path.join(__dirname, 'data', 'embeddings');
+      const filename = type === 'thesis' ? 'thesis_embeddings.json' : `${dataset}_embeddings.json`;
+      const filePath = path.join(embeddingsDir, filename);
+      
+      if (!fs.existsSync(filePath)) {
+        return { success: false, embeddings: null };
+      }
+      
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      
+      return { success: true, embeddings: data.embeddings, timestamp: data.timestamp };
+    } catch (error) {
+      console.error('Error loading embeddings:', error);
+      return { error: error.message || 'Failed to load embeddings' };
+    }
+  });
+
+  // Helper function to compute content hash
+  function computeContentHash(text) {
+    return crypto.createHash('md5').update(text).digest('hex');
+  }
 
   // IPC handler for calling Gemini API
   ipcMain.handle('call-gemini', async (event, { apiKey, prompt, context }) => {
