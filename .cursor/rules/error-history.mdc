@@ -72,3 +72,80 @@ Always check this before implementing anything. Append the user encounter and th
 - **Event Propagation**: Careful handling needed when multiple click handlers exist on parent/child elements
 - **Variable Initialization**: Always declare variables before using them in event listeners or closures
 - **Content Editable Elements**: Need proper CSS (`white-space: pre-wrap`) and keyboard event handlers to support multi-line editing
+
+---
+
+### Error 5: Images Overlaying Instead of Side-by-Side Layout
+**Encounter**: When inserting images side-by-side, they were overlaying on top of each other instead of appearing horizontally next to each other.
+
+**Root Cause**: 
+- Missing `box-sizing: border-box` on containers causing width calculation issues
+- Flex layout not properly constraining image widths
+- Missing proper width constraints on figures in side-by-side containers
+
+**Solution**:
+- Added `box-sizing: border-box` to all image containers and side-by-side wrappers
+- Set proper `max-width: calc(50% - 0.5rem)` on figures in side-by-side containers to account for gap
+- Ensured images respect container width with `max-width: 100%`
+- Made side-by-side container use proper flex layout with `display: flex` and `flex-direction: row`
+
+**Files Changed**: `local-desktop-agent/styles/main.css`
+
+---
+
+### Error 6: Cannot Delete or Deselect Images
+**Encounter**: User couldn't delete selected images and couldn't deselect images by clicking on text.
+
+**Root Cause**: 
+- No keyboard event handler for Delete/Backspace keys to delete images
+- Click handler was too restrictive - only deselected on very specific conditions (BR tags or editor itself)
+- Click handler didn't properly distinguish between clicking on text vs image elements
+
+**Solution**:
+- Added `keydown` event listener to handle Delete/Backspace keys for deleting selected images
+- Improved click handler to properly detect clicks on text vs image elements
+- Added logic to deselect when clicking on text content or empty space
+- Added Escape key handler to deselect all images
+- Created `deleteImage()` function that properly handles both regular figures and side-by-side containers
+- Added cleanup logic to remove empty side-by-side containers and restore single images when only one remains
+
+**Files Changed**: `local-desktop-agent/renderer.js`
+
+---
+
+### Error 7: Side-by-Side Button Name Unclear
+**Encounter**: Button labeled "Side by Side" was not descriptive enough for users to understand its function.
+
+**Root Cause**: Button name was too generic and didn't indicate it was for inserting images.
+
+**Solution**: Renamed button from "Side by Side" to "Insert Side-by-Side" to be consistent with "Insert Image" button and make the action clear.
+
+**Files Changed**: `local-desktop-agent/index.html`
+
+---
+
+### Error 8: Python Process Spawning Overhead - Loading Papers Too Slow
+**Encounter**: User found the approach of spawning Python processes from Electron to load pickle files too slow and cumbersome. Each paper load required spawning a new Python process, parsing output, etc.
+
+**Root Cause**: 
+- Loading papers required spawning a Python child process for each request
+- IPC communication overhead between Electron and Python
+- Pickle files not directly readable by JavaScript
+
+**Solution**:
+- Created `convert_papers_to_json.py` script to convert pickle files to JSON once
+- Store JSON files in `local-desktop-agent/data/` directory
+- Updated `main.js` to read JSON files directly using Node.js `fs` module (no Python process needed)
+- Removed Python process spawning code and `load_papers.py` script
+- JSON files are loaded natively in JavaScript, much faster and simpler
+
+**Files Changed**: 
+- Created: `local-desktop-agent/convert_papers_to_json.py` (one-time conversion script)
+- Created: `local-desktop-agent/data/` directory for JSON files
+- Modified: `local-desktop-agent/main.js` (uses fs.readFileSync instead of spawn)
+- Modified: `local-desktop-agent/agent.js` (updated error handling for new response format)
+- Deleted: `local-desktop-agent/load_papers.py` (no longer needed)
+
+**Usage**: Run `python3 local-desktop-agent/convert_papers_to_json.py` from the project root once to convert all pickle files to JSON. The app then loads JSON files directly without Python.
+
+---

@@ -8,6 +8,30 @@ class ThesisEditor {
     
     this.init();
     this.loadFromStorage();
+    this.initTabs();
+  }
+  
+  initTabs() {
+    const tabThesis = document.getElementById('tab-thesis');
+    const tabAgent = document.getElementById('tab-agent');
+    const workspace = document.querySelector('.workspace');
+    const agentSection = document.getElementById('agent-section');
+    
+    if (tabThesis && tabAgent && workspace && agentSection) {
+      tabThesis.addEventListener('click', () => {
+        tabThesis.classList.add('active');
+        tabAgent.classList.remove('active');
+        workspace.style.display = 'flex';
+        agentSection.style.display = 'none';
+      });
+      
+      tabAgent.addEventListener('click', () => {
+        tabAgent.classList.add('active');
+        tabThesis.classList.remove('active');
+        workspace.style.display = 'none';
+        agentSection.style.display = 'block';
+      });
+    }
   }
 
   init() {
@@ -15,9 +39,7 @@ class ThesisEditor {
     this.thesisEditor = document.getElementById('thesis-editor');
     this.referencesList = document.getElementById('references-list');
     this.addRefBtn = document.getElementById('add-ref-btn');
-    this.insertCitationBtn = document.getElementById('insert-citation-btn');
     this.insertImageBtn = document.getElementById('insert-image-btn');
-    this.insertSideBySideBtn = document.getElementById('insert-sidebyside-btn');
     this.saveBtn = document.getElementById('save-btn');
     this.exportBtn = document.getElementById('export-btn');
     this.exportHtmlBtn = document.getElementById('export-html-btn');
@@ -25,10 +47,6 @@ class ThesisEditor {
     // Check if elements exist
     if (!this.insertImageBtn) {
       console.error('Insert Image button not found!');
-      return;
-    }
-    if (!this.insertSideBySideBtn) {
-      console.error('Insert Side by Side button not found!');
       return;
     }
     
@@ -59,7 +77,6 @@ class ThesisEditor {
 
     // Event listeners
     this.addRefBtn.addEventListener('click', () => this.openAddRefModal());
-    this.insertCitationBtn.addEventListener('click', () => this.insertCitation());
     
     // Add event listener for insert image button with error handling
     if (this.insertImageBtn) {
@@ -67,16 +84,7 @@ class ThesisEditor {
       e.preventDefault();
       e.stopPropagation();
       console.log('Insert Image button clicked');
-      this.insertImage(false).catch(err => {
-        console.error('Error inserting image:', err);
-        alert('Error inserting image: ' + err.message);
-      });
-    });
-    
-    this.insertSideBySideBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      console.log('Insert Side by Side button clicked');
+      // Always insert side-by-side (will create new container or add to existing)
       this.insertImage(true).catch(err => {
         console.error('Error inserting image:', err);
         alert('Error inserting image: ' + err.message);
@@ -178,6 +186,16 @@ class ThesisEditor {
         this.deselectAllImages();
       }
     });
+    
+    // Handle Ctrl+S / Cmd+S for save
+    document.addEventListener('keydown', (e) => {
+      // Check for Ctrl+S (Windows/Linux) or Cmd+S (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+        this.save();
+      }
+    });
   }
 
   selectImage(figure) {
@@ -203,13 +221,13 @@ class ThesisEditor {
   }
 
   deleteImage(figure) {
-    // Store reference to next sibling before removal
-    const nextSibling = figure.nextSibling;
-    
     // Check if figure is in a side-by-side container
     const sideBySideContainer = figure.closest('.images-side-by-side');
     
     if (sideBySideContainer) {
+      // Store reference to next sibling before removal (for regular figures outside container)
+      const nextSibling = figure.nextSibling;
+      
       // Remove the figure from side-by-side container
       figure.remove();
       
@@ -218,23 +236,29 @@ class ThesisEditor {
       if (remainingFigures.length === 1) {
         const singleFigure = remainingFigures[0];
         const parent = sideBySideContainer.parentNode;
+        const brAfter = sideBySideContainer.nextSibling;
         parent.insertBefore(singleFigure, sideBySideContainer);
+        if (brAfter && brAfter.nodeType === Node.ELEMENT_NODE && brAfter.tagName === 'BR') {
+          singleFigure.after(brAfter);
+        }
         sideBySideContainer.remove();
       } else if (remainingFigures.length === 0) {
         // No figures left, remove the empty container and any trailing BR
-        if (sideBySideContainer.nextSibling && 
-            sideBySideContainer.nextSibling.nodeType === Node.ELEMENT_NODE && 
-            sideBySideContainer.nextSibling.tagName === 'BR') {
-          sideBySideContainer.nextSibling.remove();
+        const brAfter = sideBySideContainer.nextSibling;
+        if (brAfter && brAfter.nodeType === Node.ELEMENT_NODE && brAfter.tagName === 'BR') {
+          brAfter.remove();
         }
         sideBySideContainer.remove();
       }
     } else {
       // Regular figure, remove it and clean up trailing BR if exists
+      const nextSibling = figure.nextSibling;
+      figure.remove();
+      
+      // Clean up BR tag that was after the figure
       if (nextSibling && nextSibling.nodeType === Node.ELEMENT_NODE && nextSibling.tagName === 'BR') {
         nextSibling.remove();
       }
-      figure.remove();
     }
     
     this.deselectAllImages();

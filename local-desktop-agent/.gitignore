@@ -29,3 +29,9 @@ yarn-error.log*
 # Electron
 *.asar
 
+# Data files (uncomment if JSON files are too large)
+# data/*.json
+
+# PDF files (downloaded papers can be large)
+data/pdfs/*.pdf
+

@@ -10,7 +10,11 @@
 <body>
   <div class="app-container">
     <header class="app-header">
-      <h1>Thesis Editor</h1>
+      <h1>Paper Reader</h1>
+      <div class="header-tabs">
+        <button id="tab-thesis" class="tab-btn active">Thesis Editor</button>
+        <button id="tab-agent" class="tab-btn">Research Agent</button>
+      </div>
       <div class="header-actions">
         <button id="save-btn" class="btn btn-primary">Save</button>
         <button id="export-btn" class="btn btn-secondary">Export TXT</button>
@@ -25,8 +29,6 @@
             <h2>Thesis</h2>
             <div class="editor-toolbar">
               <button id="insert-image-btn" class="btn btn-small" title="Insert Image">Insert Image</button>
-              <button id="insert-sidebyside-btn" class="btn btn-small" title="Insert Images Side by Side">Insert Side-by-Side</button>
-              <button id="insert-citation-btn" class="btn btn-small">Insert Citation</button>
             </div>
           </div>
           <div class="thesis-editor-container">
@@ -52,6 +54,107 @@ Use 'Insert Image' to add images from your computer."
             <!-- References will be dynamically added here -->
           </div>
         </section>
+      </div>
+      
+      <!-- Research Agent Section -->
+      <div id="agent-section" class="agent-section" style="display: none;">
+        <div class="agent-container">
+          <div class="agent-sidebar">
+            <div class="settings-section">
+              <div class="settings-header">
+                <h4>Settings</h4>
+                <button id="toggle-settings-btn" class="btn-toggle" title="Collapse/Expand">▼</button>
+              </div>
+              <div id="settings-content" class="settings-content">
+                <div class="setting-group">
+                  <label for="gemini-api-key">Gemini API Key:</label>
+                  <input type="password" id="gemini-api-key" class="setting-input" placeholder="Enter your Gemini API key...">
+                  <button id="save-api-key-btn" class="btn btn-primary btn-small" style="width: 100%; margin-top: 0.5rem;">Save API Key</button>
+                  <small class="setting-help">Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></small>
+                  <small class="setting-help" style="color: #27ae60; margin-top: 0.25rem; display: none;" id="api-key-saved-indicator">✓ API key is saved and will be loaded automatically</small>
+                </div>
+              </div>
+            </div>
+            
+            <div class="paper-selector">
+              <div class="paper-selector-header">
+                <h3>Paper Database</h3>
+                <button id="toggle-paper-db-btn" class="btn-toggle" title="Collapse/Expand">▼</button>
+              </div>
+              <div id="paper-db-content" class="paper-db-content">
+                <select id="paper-dataset-select" class="paper-select">
+                  <option value="">Select dataset...</option>
+                  <option value="ICLR_2025">ICLR 2025</option>
+                  <option value="NeurIPS_2025">NeurIPS 2025</option>
+                </select>
+                <button id="load-papers-btn" class="btn btn-primary btn-small">Load Papers</button>
+                <div id="paper-count" class="paper-count"></div>
+              </div>
+            </div>
+            
+            <div class="paper-filters">
+              <div class="paper-filters-header">
+                <h4>Filters</h4>
+                <button id="toggle-filters-btn" class="btn-toggle" title="Collapse/Expand">▼</button>
+              </div>
+              <div id="filters-content" class="filters-content">
+                <div class="filter-group">
+                  <label>Presentation Type:</label>
+                  <select id="filter-presentation" class="filter-select">
+                    <option value="">All</option>
+                    <option value="Oral">Oral</option>
+                    <option value="Spotlight">Spotlight</option>
+                    <option value="Poster">Poster</option>
+                  </select>
+                </div>
+                <div class="filter-group">
+                  <label>Search Papers:</label>
+                  <input type="text" id="search-papers" class="filter-input" placeholder="Search by title, abstract...">
+                </div>
+              </div>
+            </div>
+            
+            <div class="loaded-contexts-info" id="loaded-contexts-info" style="display: none;">
+              <div class="loaded-contexts-header">
+                <h4>Loaded Contexts</h4>
+                <button id="toggle-contexts-btn" class="btn-toggle" title="Collapse/Expand">▼</button>
+              </div>
+              <div id="loaded-contexts-content" class="loaded-contexts-content">
+                <div id="loaded-contexts-list" class="loaded-contexts-list"></div>
+                <button id="clear-all-contexts-btn" class="btn btn-small btn-danger" style="width: 100%; margin-top: 0.5rem;">Clear All</button>
+              </div>
+            </div>
+            
+            <div id="paper-list" class="paper-list">
+              <div class="empty-state">Load papers to get started</div>
+            </div>
+          </div>
+          
+          <div class="agent-main">
+            <div class="chat-container">
+              <div id="chat-messages" class="chat-messages">
+                <div class="welcome-message">
+                  <h2>Research Agent</h2>
+                  <p>Ask questions about recent papers to generate research ideas!</p>
+                  <p>Example questions:</p>
+                  <ul>
+                    <li>"What are the main trends in ICLR 2025?"</li>
+                    <li>"Find papers related to transformer architectures"</li>
+                    <li>"What are some unexplored research directions?"</li>
+                    <li>"Compare different approaches to few-shot learning"</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="chat-input-container">
+                <textarea id="chat-input" class="chat-input" placeholder="Ask a question about the papers..." rows="3"></textarea>
+                <div class="chat-actions">
+                  <button id="send-btn" class="btn btn-primary">Send</button>
+                  <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -125,6 +228,7 @@ Use 'Insert Image' to add images from your computer."
   </div>
 
   <script src="renderer.js"></script>
+  <script src="agent.js"></script>
 </body>
 </html>
 

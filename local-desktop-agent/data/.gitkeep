@@ -1,0 +1,3 @@
+# This directory will contain converted JSON files from pickle files
+# Run convert_papers_to_json.py to generate the JSON files
+
