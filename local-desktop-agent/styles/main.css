@@ -972,6 +972,22 @@ body {
   border-color: #2980b9;
 }
 
+.btn-use-abstract-only-chat {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  border: 1px solid #3498db;
+  background-color: #3498db;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-use-abstract-only-chat:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
 .btn-use-abstract-only {
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
@@ -1196,3 +1212,300 @@ body {
   justify-content: flex-end;
 }
 
+/* Mode Toggle Button */
+.mode-toggle {
+  margin-bottom: 0.5rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.btn-toggle {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  border: 2px solid #3498db;
+  background-color: #fff;
+  color: #3498db;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-toggle:hover {
+  background-color: #ecf0f1;
+}
+
+.btn-toggle.active {
+  background-color: #3498db;
+  color: #fff;
+}
+
+.btn-toggle.edit-mode {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.btn-toggle.edit-mode.active {
+  background-color: #e74c3c;
+  color: #fff;
+}
+
+.mode-label {
+  font-weight: 500;
+}
+
+/* Edit Proposal Modal */
+#edit-proposal-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+}
+
+#edit-proposal-modal.active {
+  display: flex;
+}
+
+#edit-proposal-modal .modal-content {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 2rem;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  width: 90%;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+#edit-proposal-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+#edit-proposal-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #2c3e50;
+}
+
+#edit-proposal-modal .modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #7f8c8d;
+  padding: 0;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+#edit-proposal-modal .modal-close:hover {
+  background-color: #ecf0f1;
+  color: #2c3e50;
+}
+
+.proposal-description {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #2c3e50;
+}
+
+.proposal-before-after {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.proposal-before-after .before,
+.proposal-before-after .after {
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f8f9fa;
+}
+
+.proposal-before-after .before strong,
+.proposal-before-after .after strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.proposal-before-after .before-text,
+.proposal-before-after .after-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #2c3e50;
+  margin: 0;
+  padding: 0.5rem;
+  background-color: #fff;
+  border-radius: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.proposal-reasoning {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: #e8f4f8;
+  border-left: 4px solid #3498db;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #2c3e50;
+}
+
+#edit-proposal-modal .modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid #ecf0f1;
+}
+
+#edit-proposal-modal .modal-actions .btn {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+#edit-proposal-modal .modal-actions .btn-primary {
+  background-color: #27ae60;
+  color: #fff;
+}
+
+#edit-proposal-modal .modal-actions .btn-primary:hover {
+  background-color: #229954;
+}
+
+#edit-proposal-modal .modal-actions .btn-secondary {
+  background-color: #95a5a6;
+  color: #fff;
+}
+
+#edit-proposal-modal .modal-actions .btn-secondary:hover {
+  background-color: #7f8c8d;
+}
+
+/* Edit Diff View Styles - Clean red highlighting */
+/* Wrapper for edit container and approve button */
+.edit-wrapper {
+  display: inline;
+  position: relative;
+}
+
+.edit-diff-container {
+  display: inline;
+  margin: 0;
+  vertical-align: baseline;
+  position: relative;
+}
+
+/* Approve button wrapper - appears after the edit */
+.edit-approve-wrapper {
+  display: inline-block;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Show approve button always visible (not just on hover) */
+.edit-wrapper .edit-approve-btn {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Deleted text - red strikethrough, always visible */
+.edit-deleted,
+del.edit-deleted {
+  background-color: #ffebee !important;
+  color: #c62828 !important;
+  text-decoration: line-through !important;
+  text-decoration-color: #d32f2f !important;
+  text-decoration-thickness: 2px !important;
+  display: inline !important;
+  margin-right: 4px !important;
+  padding: 1px 2px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Added text - red underline highlight */
+.edit-added {
+  background-color: #ffebee;
+  color: #c62828;
+  text-decoration: none;
+  border-bottom: 2px solid #d32f2f;
+  padding: 1px 2px;
+  display: inline;
+  vertical-align: baseline;
+}
+
+/* Make diff view always visible - no fade, no transitions */
+.edit-diff-container,
+.edit-deleted,
+.edit-added {
+  opacity: 1 !important;
+  transition: none !important;
+  animation: none !important;
+  line-height: inherit;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+/* Approve button for accepting edits - always visible at the end of edited block */
+.edit-approve-btn {
+  display: inline-block !important;
+  padding: 6px 12px;
+  background-color: #27ae60 !important;
+  color: white !important;
+  border: 1px solid #229954 !important;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  vertical-align: middle;
+  line-height: 1.2;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative;
+  z-index: 10;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.edit-approve-btn:hover {
+  background-color: #229954 !important;
+}
+
+.edit-approve-btn:active {
+  background-color: #1e8449 !important;
+}

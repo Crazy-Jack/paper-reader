@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "canvas": "^2.11.2",
     "https": "^1.0.0",
     "pdfjs-dist": "^3.11.174"
   }

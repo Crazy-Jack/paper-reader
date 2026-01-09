@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   callGemini: (params) => ipcRenderer.invoke('call-gemini', params),
   getEmbeddings: (params) => ipcRenderer.invoke('get-embeddings', params),
   saveEmbeddings: (params) => ipcRenderer.invoke('save-embeddings', params),
-  loadEmbeddings: (params) => ipcRenderer.invoke('load-embeddings', params)
+  loadEmbeddings: (params) => ipcRenderer.invoke('load-embeddings', params),
+  proposeThesisEdit: (params) => ipcRenderer.invoke('propose-thesis-edit', params)
 });
 

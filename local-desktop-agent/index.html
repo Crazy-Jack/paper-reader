@@ -150,6 +150,11 @@ Use 'Insert Image' to add images from your computer."
                 </div>
               </div>
               <div class="chat-input-container">
+                <div class="mode-toggle">
+                  <button id="mode-toggle-btn" class="btn btn-toggle active" data-mode="ask">
+                    <span class="mode-label">Ask Mode</span>
+                  </button>
+                </div>
                 <textarea id="chat-input" class="chat-input" placeholder="Ask a question about the papers..." rows="3"></textarea>
                 <div class="chat-actions">
                   <button id="send-btn" class="btn btn-primary">Send</button>
@@ -227,6 +232,36 @@ Use 'Insert Image' to add images from your computer."
           <button type="button" id="cancel-ref-btn-bibtex" class="btn btn-secondary">Cancel</button>
           <button type="button" id="parse-bibtex-btn" class="btn btn-primary">Parse BibTeX</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Proposal Modal -->
+  <div id="edit-proposal-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Edit Proposal</h3>
+        <button class="modal-close" id="close-edit-proposal-modal">&times;</button>
+      </div>
+      <div class="proposal-description"></div>
+      <div class="proposal-location" style="display: none;">
+        <strong>📍 Edit Location:</strong>
+        <pre class="proposal-location-text"></pre>
+      </div>
+      <div class="proposal-before-after">
+        <div class="before">
+          <strong>Before:</strong>
+          <pre class="before-text"></pre>
+        </div>
+        <div class="after">
+          <strong>After:</strong>
+          <pre class="after-text"></pre>
+        </div>
+      </div>
+      <div class="proposal-reasoning"></div>
+      <div class="modal-actions">
+        <button id="approve-edit-btn" class="btn btn-primary">Approve</button>
+        <button id="reject-edit-btn" class="btn btn-secondary">Reject</button>
       </div>
     </div>
   </div>

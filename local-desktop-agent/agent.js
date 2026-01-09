@@ -8,6 +8,7 @@ class ResearchAgent {
     this.loadedContexts = {}; // Store loaded PDF contexts by forum ID
     this.geminiApiKey = null; // Store Gemini API key
     this.useGemini = false; // Flag to enable/disable Gemini
+    this.mode = 'ask'; // 'ask' or 'edit' mode
     
     this.init();
     this.loadApiKey();
@@ -39,6 +40,12 @@ class ResearchAgent {
     this.geminiApiKeyInput = document.getElementById('gemini-api-key');
     this.saveApiKeyBtn = document.getElementById('save-api-key-btn');
     this.apiKeySavedIndicator = document.getElementById('api-key-saved-indicator');
+    this.modeToggleBtn = document.getElementById('mode-toggle-btn');
+    this.editProposalModal = document.getElementById('edit-proposal-modal');
+    this.closeEditProposalModal = document.getElementById('close-edit-proposal-modal');
+    this.approveEditBtn = document.getElementById('approve-edit-btn');
+    this.rejectEditBtn = document.getElementById('reject-edit-btn');
+    this.currentProposal = null; // Store current edit proposal
     
     // Track collapse states
     this.contextsPanelExpanded = true;
@@ -60,6 +67,40 @@ class ResearchAgent {
     this.findRelevantPapersBtn.addEventListener('click', () => this.findRelevantPapersFromThesis());
     this.sendBtn.addEventListener('click', () => this.sendMessage());
     this.clearBtn.addEventListener('click', () => this.clearChat());
+    
+    // Mode toggle button
+    if (this.modeToggleBtn) {
+      this.modeToggleBtn.addEventListener('click', () => this.toggleMode());
+      this.updateModeUI();
+    }
+    
+    // Edit proposal modal handlers
+    if (this.closeEditProposalModal) {
+      this.closeEditProposalModal.addEventListener('click', () => this.closeEditProposal());
+    }
+    if (this.approveEditBtn) {
+      this.approveEditBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('=== APPROVE BUTTON CLICKED ===');
+        console.log('Current proposal:', this.currentProposal);
+        this.approveEdit();
+      });
+    }
+    if (this.rejectEditBtn) {
+      this.rejectEditBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.rejectEdit();
+      });
+    }
+    if (this.editProposalModal) {
+      this.editProposalModal.addEventListener('click', (e) => {
+        if (e.target === this.editProposalModal) {
+          this.closeEditProposal();
+        }
+      });
+    }
     
     // Allow Enter to send (Shift+Enter for new line)
     this.chatInput.addEventListener('keydown', (e) => {
@@ -341,6 +382,64 @@ class ResearchAgent {
 
 You can now ask questions about ${loadedCount === 1 ? 'this paper' : 'these papers'}, and I'll use ${loadedCount === 1 ? 'its' : 'their'} content as context!
           `);
+          
+          // Add button after message is updated (use setTimeout to ensure DOM is ready)
+          setTimeout(() => {
+            const messageDiv = document.getElementById(loadingId);
+            if (messageDiv) {
+              const contentDiv = messageDiv.querySelector('.message-content');
+              if (contentDiv) {
+                // Check if button already exists
+                const existingButton = contentDiv.querySelector('.btn-use-abstract-only-chat');
+                if (existingButton) {
+                  existingButton.remove();
+                }
+                
+                const button = document.createElement('button');
+                button.className = 'btn-use-abstract-only-chat btn-small';
+                button.setAttribute('data-forum', forumId);
+                button.setAttribute('data-title', title);
+                button.style.marginTop = '0.5rem';
+                button.style.display = 'block';
+                button.textContent = '📝 Use Abstract Only';
+                
+                button.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  const btnForumId = button.getAttribute('data-forum');
+                  const btnTitle = button.getAttribute('data-title');
+                  const context = this.loadedContexts[btnForumId];
+                  
+                  if (context && context.type === 'full' && context.paper && context.paper.abstract) {
+                    // Convert to abstract-only
+                    const abstractText = this.cleanAbstract(context.paper.abstract || 'No abstract available');
+                    
+                    this.loadedContexts[btnForumId] = {
+                      title: btnTitle,
+                      text: `Title: ${btnTitle}\n\nAbstract:\n${abstractText}`,
+                      type: 'abstract',
+                      loadedAt: new Date().toISOString(),
+                      forumId: btnForumId,
+                      paper: context.paper
+                    };
+                    
+                    // Update UI
+                    this.renderPapers();
+                    this.updateLoadedContextsUI();
+                    
+                    // Replace button with success message
+                    const successSpan = document.createElement('span');
+                    successSpan.style.color = '#27ae60';
+                    successSpan.style.fontWeight = '600';
+                    successSpan.textContent = '✓ Switched to Abstract Only';
+                    button.replaceWith(successSpan);
+                  }
+                });
+                
+                contentDiv.appendChild(button);
+                this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+              }
+            }
+          }, 0);
         }
         
         return { success: true };
@@ -638,18 +737,55 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     }
   }
 
+  toggleMode() {
+    this.mode = this.mode === 'ask' ? 'edit' : 'ask';
+    this.updateModeUI();
+  }
+
+  updateModeUI() {
+    if (this.modeToggleBtn) {
+      const label = this.mode === 'ask' ? 'Ask Mode' : 'Edit Mode';
+      const modeLabel = this.modeToggleBtn.querySelector('.mode-label');
+      if (modeLabel) {
+        modeLabel.textContent = label;
+      }
+      this.modeToggleBtn.setAttribute('data-mode', this.mode);
+      
+      // Update button appearance
+      if (this.mode === 'edit') {
+        this.modeToggleBtn.classList.add('edit-mode');
+      } else {
+        this.modeToggleBtn.classList.remove('edit-mode');
+      }
+      
+      // Update chat input placeholder
+      if (this.chatInput) {
+        this.chatInput.placeholder = this.mode === 'ask' 
+          ? 'Ask a question about the papers...'
+          : 'Describe the edit you want to make to your thesis...';
+      }
+    }
+  }
+
   async sendMessage() {
     const message = this.chatInput.value.trim();
     if (!message) return;
 
+    // Add user message
+    this.addMessage('user', message);
+    this.chatInput.value = '';
+
+    // Check mode - edit mode vs ask mode
+    if (this.mode === 'edit') {
+      await this.handleEditMode(message);
+      return;
+    }
+
+    // Original ask mode logic
     if (this.papers.length === 0) {
       alert('Please load papers first');
       return;
     }
-
-    // Add user message
-    this.addMessage('user', message);
-    this.chatInput.value = '';
 
     // Show thinking indicator
     const thinkingId = this.addMessage('agent', 'Thinking...', true);
@@ -697,6 +833,346 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
         this.updateMessage(thinkingId, response);
       }, 500);
     }
+  }
+
+  async handleEditMode(message) {
+    if (!this.geminiApiKey) {
+      this.addMessage('agent', 'Please set your Gemini API key in Settings first. Edit proposals require an API key.');
+      return;
+    }
+
+    // Get thesis content
+    let thesisContent = null;
+    if (window.getThesisHTML) {
+      thesisContent = window.getThesisHTML();
+    } else {
+      // Fallback: try to access thesis editor directly
+      const thesisEditor = document.getElementById('thesis-editor');
+      if (thesisEditor) {
+        thesisContent = {
+          html: thesisEditor.innerHTML,
+          plainText: thesisEditor.textContent || thesisEditor.innerText
+        };
+      }
+    }
+
+    if (!thesisContent || !thesisContent.plainText || thesisContent.plainText.trim().length < 10) {
+      this.addMessage('agent', 'Your thesis appears to be empty or too short. Please write some content in the thesis editor first.');
+      return;
+    }
+
+    // Show thinking indicator
+    const thinkingId = this.addMessage('agent', 'Analyzing your thesis and generating edit proposal...', true);
+
+    try {
+      // Gather loaded contexts
+      const loadedContexts = Object.keys(this.loadedContexts).length > 0
+        ? Object.keys(this.loadedContexts).map(id => this.loadedContexts[id])
+        : null;
+
+      // Call edit proposal IPC handler
+      const result = await window.electronAPI.proposeThesisEdit({
+        apiKey: this.geminiApiKey,
+        userIntention: message,
+        thesisContent: thesisContent.plainText,
+        loadedContexts: loadedContexts
+      });
+
+      if (result.error) {
+        this.updateMessage(thinkingId, `Error generating edit proposal: ${result.error}${result.rawResponse ? '\n\nRaw response:\n' + result.rawResponse.substring(0, 500) : ''}`);
+      } else if (result.success && result.proposal) {
+        // Store proposal and display it
+        this.currentProposal = result.proposal;
+        this.displayEditProposal(result.proposal);
+        this.updateMessage(thinkingId, '✓ Edit proposal generated! Review it in the modal below.');
+      } else {
+        this.updateMessage(thinkingId, 'Failed to generate edit proposal. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error in edit mode:', error);
+      this.updateMessage(thinkingId, `Error: ${error.message}`);
+    }
+  }
+
+  displayEditProposal(proposal) {
+    console.log('Displaying edit proposal:', JSON.stringify(proposal, null, 2));
+    
+    if (!this.editProposalModal) {
+      console.error('Edit proposal modal not found!');
+      return;
+    }
+
+    // Store proposal for approval
+    this.currentProposal = proposal;
+
+    // Populate modal with proposal data
+    const descriptionEl = this.editProposalModal.querySelector('.proposal-description');
+    const beforeTextEl = this.editProposalModal.querySelector('.before-text');
+    const afterTextEl = this.editProposalModal.querySelector('.after-text');
+    const reasoningEl = this.editProposalModal.querySelector('.proposal-reasoning');
+    const locationContextEl = this.editProposalModal.querySelector('.proposal-location');
+    const locationTextEl = this.editProposalModal.querySelector('.proposal-location-text');
+
+    if (descriptionEl) {
+      descriptionEl.textContent = proposal.description || 'No description provided';
+    }
+
+    // Show first change's before/after with location context
+    if (proposal.changes && Array.isArray(proposal.changes) && proposal.changes.length > 0) {
+      const firstChange = proposal.changes[0];
+      console.log('First change:', firstChange);
+      
+      // Show location context if available
+      if (locationContextEl && locationTextEl) {
+        if (firstChange.locationContext || firstChange.surroundingText) {
+          let locationText = '';
+          if (firstChange.locationContext) {
+            locationText += `📍 ${firstChange.locationContext}\n\n`;
+          }
+          if (firstChange.surroundingText) {
+            locationText += `Context around edit location:\n${firstChange.surroundingText}`;
+          }
+          locationTextEl.textContent = locationText;
+          locationContextEl.style.display = 'block';
+        } else {
+          // Try to infer location from searchText
+          if (firstChange.searchText) {
+            // Show a portion of searchText to indicate location
+            const searchPreview = firstChange.searchText.length > 150 
+              ? firstChange.searchText.substring(0, 150) + '...'
+              : firstChange.searchText;
+            locationTextEl.textContent = `Edit will be applied where this text appears:\n"${searchPreview}"`;
+            locationContextEl.style.display = 'block';
+          } else {
+            locationContextEl.style.display = 'none';
+          }
+        }
+      }
+      
+      // Show before text with search context
+      if (beforeTextEl) {
+        let beforeText = '';
+        if (firstChange.searchText) {
+          beforeText = firstChange.searchText;
+        } else if (firstChange.surroundingText) {
+          beforeText = firstChange.surroundingText;
+        } else {
+          beforeText = firstChange.before || 'N/A';
+        }
+        beforeTextEl.textContent = beforeText;
+      }
+      
+      // Show after text
+      if (afterTextEl) {
+        afterTextEl.textContent = firstChange.newText || firstChange.after || 'N/A';
+      }
+    } else {
+      console.warn('Proposal has no changes or invalid format:', proposal.changes);
+      if (beforeTextEl) beforeTextEl.textContent = 'N/A';
+      if (afterTextEl) afterTextEl.textContent = 'N/A';
+      if (locationContextEl) locationContextEl.style.display = 'none';
+    }
+
+    if (reasoningEl) {
+      reasoningEl.textContent = proposal.reasoning || 'No reasoning provided';
+    }
+
+    // Show modal
+    this.editProposalModal.classList.add('active');
+    console.log('Edit proposal modal shown');
+  }
+
+  async approveEdit() {
+    if (!this.currentProposal) {
+      alert('No edit proposal to approve');
+      return;
+    }
+
+    console.log('=== APPROVING EDIT PROPOSAL ===');
+    console.log('Proposal:', JSON.stringify(this.currentProposal, null, 2));
+    console.log('window.applyBasicEdit available?', typeof window.applyBasicEdit);
+    console.log('window.getThesisHTML available?', typeof window.getThesisHTML);
+    
+    // Check if thesis editor exists
+    const thesisEditor = document.getElementById('thesis-editor');
+    console.log('Thesis editor element:', thesisEditor);
+    if (thesisEditor) {
+      console.log('Current thesis content length:', (thesisEditor.textContent || '').length);
+      console.log('Current thesis HTML length:', (thesisEditor.innerHTML || '').length);
+    }
+
+    // Apply the edit
+    if (window.applyBasicEdit && typeof window.applyBasicEdit === 'function') {
+      try {
+        const result = window.applyBasicEdit(this.currentProposal);
+        console.log('Edit application result:', result);
+        
+        if (result && result.success) {
+          // Verify the edit was actually applied
+          if (thesisEditor) {
+            const newContent = thesisEditor.textContent || thesisEditor.innerText || '';
+            console.log('New thesis content length after edit:', newContent.length);
+            console.log('New thesis preview:', newContent.substring(Math.max(0, newContent.length - 200)));
+          }
+          
+          this.addMessage('agent', '✓ Edit applied successfully! Check the thesis editor to see the changes.');
+          this.closeEditProposal();
+          
+          // Switch to thesis tab first if in agent tab
+          const tabThesis = document.getElementById('tab-thesis');
+          const workspace = document.querySelector('.workspace');
+          const agentSection = document.getElementById('agent-section');
+          
+          if (tabThesis && !tabThesis.classList.contains('active')) {
+            console.log('Switching to thesis tab...');
+            tabThesis.classList.add('active');
+            const tabAgent = document.getElementById('tab-agent');
+            if (tabAgent) {
+              tabAgent.classList.remove('active');
+            }
+            if (workspace) {
+              workspace.style.display = 'flex';
+            }
+            if (agentSection) {
+              agentSection.style.display = 'none';
+            }
+            // Also trigger click event to ensure all handlers fire
+            tabThesis.click();
+          }
+          
+          // Wait a bit for tab switch to complete, then focus editor
+          setTimeout(() => {
+            // Try to focus and scroll to editor
+            if (thesisEditor) {
+              thesisEditor.focus();
+              thesisEditor.scrollTop = thesisEditor.scrollHeight;
+              // Scroll window to make editor visible
+              thesisEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              console.log('✓ Editor focused and scrolled');
+            }
+          }, 100);
+        } else {
+          const errorMsg = result && result.error ? result.error : 'Unknown error';
+          console.error('Edit application failed:', errorMsg);
+          alert(`Error applying edit: ${errorMsg}\n\nCheck the browser console for details.`);
+          this.addMessage('agent', `✗ Error applying edit: ${errorMsg}`);
+        }
+      } catch (error) {
+        console.error('Exception while applying edit:', error);
+        console.error('Stack:', error.stack);
+        alert(`Error applying edit: ${error.message}\n\nCheck the browser console for details.`);
+        this.addMessage('agent', `✗ Error applying edit: ${error.message}`);
+      }
+    } else {
+      console.error('applyBasicEdit function not available on window');
+      console.error('Available window functions:', Object.keys(window).filter(k => k.includes('apply') || k.includes('thesis')));
+      alert('Error: Edit application function not available. Please refresh the app.\n\nCheck the browser console for details.');
+      
+      // Try fallback: direct access to thesisApp or thesis editor
+      console.log('Attempting fallback methods...');
+      
+      // Method 1: window.thesisApp
+      if (typeof window.thesisApp !== 'undefined' && window.thesisApp && typeof window.thesisApp.applyBasicEdit === 'function') {
+        console.log('Trying fallback method 1: window.thesisApp.applyBasicEdit');
+        try {
+          const result = window.thesisApp.applyBasicEdit(this.currentProposal);
+          if (result && result.success) {
+            this.addMessage('agent', '✓ Edit applied successfully (via fallback method 1)!');
+            this.closeEditProposal();
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('Fallback method 1 failed:', fallbackError);
+        }
+      }
+      
+      // Method 2: Direct DOM manipulation as last resort
+      const thesisEditor = document.getElementById('thesis-editor');
+      if (thesisEditor) {
+        console.log('Trying fallback method 2: Direct DOM manipulation');
+        try {
+          // Get new text from proposal
+          let newText = '';
+          if (this.currentProposal.changes && this.currentProposal.changes.length > 0) {
+            const firstChange = this.currentProposal.changes[0];
+            newText = firstChange.newText || firstChange.newContent || firstChange.after || '';
+          } else if (this.currentProposal.newText || this.currentProposal.newContent) {
+            newText = this.currentProposal.newText || this.currentProposal.newContent || '';
+          }
+          
+          if (newText) {
+            // Escape HTML
+            const div = document.createElement('div');
+            div.textContent = newText;
+            const escapedText = div.innerHTML;
+            const newTextHtml = escapedText.replace(/\n/g, '<br>');
+            
+            // Append to end
+            thesisEditor.innerHTML += '<br><br><div style="border-left: 3px solid #27ae60; padding-left: 10px; margin: 10px 0;"><strong>[Edit Applied - Fallback Method]</strong></div><br>' + newTextHtml;
+            
+            // Focus and scroll
+            thesisEditor.focus();
+            thesisEditor.scrollTop = thesisEditor.scrollHeight;
+            
+            // Save if possible
+            if (window.thesisApp && typeof window.thesisApp.saveToStorage === 'function') {
+              window.thesisApp.saveToStorage();
+            }
+            
+            this.addMessage('agent', '✓ Edit applied successfully (via fallback method 2 - direct DOM)!');
+            this.closeEditProposal();
+            
+            // Switch to thesis tab
+            const tabThesis = document.getElementById('tab-thesis');
+            const workspace = document.querySelector('.workspace');
+            const agentSection = document.getElementById('agent-section');
+            
+            if (tabThesis && !tabThesis.classList.contains('active')) {
+              console.log('Switching to thesis tab (fallback method 2)...');
+              tabThesis.classList.add('active');
+              const tabAgent = document.getElementById('tab-agent');
+              if (tabAgent) {
+                tabAgent.classList.remove('active');
+              }
+              if (workspace) {
+                workspace.style.display = 'flex';
+              }
+              if (agentSection) {
+                agentSection.style.display = 'none';
+              }
+              tabThesis.click();
+            }
+            
+            // Wait a bit then scroll to editor
+            setTimeout(() => {
+              if (thesisEditor) {
+                thesisEditor.focus();
+                thesisEditor.scrollTop = thesisEditor.scrollHeight;
+                thesisEditor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }, 100);
+            
+            return;
+          }
+        } catch (fallbackError) {
+          console.error('Fallback method 2 also failed:', fallbackError);
+        }
+      }
+      
+      console.error('All methods failed to apply edit');
+    }
+  }
+
+  rejectEdit() {
+    this.closeEditProposal();
+    this.addMessage('agent', 'Edit proposal rejected.');
+  }
+
+  closeEditProposal() {
+    if (this.editProposalModal) {
+      this.editProposalModal.classList.remove('active');
+    }
+    this.currentProposal = null;
   }
   
   async loadApiKey() {
@@ -1034,6 +1510,26 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       const totalBatches = Math.ceil(texts.length / batchSize);
       let computedCount = 0;
       
+      // Load full cache once at the start for merging
+      let fullCacheMap = new Map();
+      if (window.electronAPI && window.electronAPI.loadEmbeddings) {
+        const fullCache = await window.electronAPI.loadEmbeddings({
+          dataset: this.currentDataset,
+          type: 'papers'
+        });
+        
+        if (fullCache.success && fullCache.embeddings) {
+          fullCache.embeddings.forEach(item => {
+            const forumId = item.forumId || (item.paperIndex !== undefined && this.papers[item.paperIndex] 
+              ? (this.papers[item.paperIndex].forum || `index_${item.paperIndex}`) 
+              : null);
+            if (forumId) {
+              fullCacheMap.set(forumId, item);
+            }
+          });
+        }
+      }
+      
       for (let i = 0; i < texts.length; i += batchSize) {
         const batch = texts.slice(i, i + batchSize);
         const batchIndices = papersToComputeIndices.slice(i, i + batchSize);
@@ -1054,14 +1550,34 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
             const paper = this.papers[paperIndex];
             const forumId = paper.forum || `index_${paperIndex}`;
             
-            allEmbeddings.push({
+            const embeddingItem = {
               paperIndex: paperIndex,
               paper: paper,
               text: batch[idx],
               embedding: embedding
+            };
+            
+            allEmbeddings.push(embeddingItem);
+            
+            // Add to cache map immediately for periodic saving
+            fullCacheMap.set(forumId, {
+              forumId: forumId,
+              text: batch[idx].substring(0, 200),
+              embedding: embedding,
+              paperIndex: paperIndex
             });
             
             computedCount++;
+          });
+        }
+
+        // Save after each batch to preserve progress
+        if (window.electronAPI && window.electronAPI.saveEmbeddings) {
+          const embeddingsToSave = Array.from(fullCacheMap.values());
+          await window.electronAPI.saveEmbeddings({
+            dataset: this.currentDataset,
+            type: 'papers',
+            embeddings: embeddingsToSave
           });
         }
 
@@ -1076,49 +1592,6 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
         if (i + batchSize < texts.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
-      }
-
-      // Cache all embeddings (cached + newly computed)
-      // Note: We save all embeddings from the full dataset cache, not just target papers
-      // This ensures we maintain the full cache for future use
-      if (window.electronAPI && window.electronAPI.saveEmbeddings) {
-        // Load full cache to merge with new embeddings
-        const fullCache = await window.electronAPI.loadEmbeddings({
-          dataset: this.currentDataset,
-          type: 'papers'
-        });
-        
-        const fullCacheMap = new Map();
-        if (fullCache.success && fullCache.embeddings) {
-          fullCache.embeddings.forEach(item => {
-            const forumId = item.forumId || (item.paperIndex !== undefined && this.papers[item.paperIndex] 
-              ? (this.papers[item.paperIndex].forum || `index_${item.paperIndex}`) 
-              : null);
-            if (forumId) {
-              fullCacheMap.set(forumId, item);
-            }
-          });
-        }
-        
-        // Add newly computed embeddings to the cache map
-        allEmbeddings.forEach(item => {
-          const forumId = item.paper.forum || `index_${item.paperIndex}`;
-          fullCacheMap.set(forumId, {
-            forumId: forumId,
-            text: item.text.substring(0, 200),
-            embedding: item.embedding,
-            paperIndex: item.paperIndex
-          });
-        });
-        
-        // Save the complete cache (all papers, not just target)
-        const embeddingsToSave = Array.from(fullCacheMap.values());
-        
-        await window.electronAPI.saveEmbeddings({
-          dataset: this.currentDataset,
-          type: 'papers',
-          embeddings: embeddingsToSave
-        });
       }
     }
 
