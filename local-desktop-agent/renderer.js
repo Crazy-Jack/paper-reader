@@ -1521,9 +1521,29 @@ class ThesisEditor {
   }
 
   getThesisHTML() {
+    // Extract HTML
+    const html = this.thesisEditor.innerHTML;
+    
+    // Extract plain text while preserving paragraph structure
+    // Convert <br> and <p> tags to newlines, <div> to double newlines
+    let plainText = html
+      .replace(/<p[^>]*>/gi, '\n\n')  // <p> tags become double newlines
+      .replace(/<\/p>/gi, '\n\n')     // </p> tags become double newlines
+      .replace(/<div[^>]*>/gi, '\n\n') // <div> tags become double newlines
+      .replace(/<\/div>/gi, '\n\n')   // </div> tags become double newlines
+      .replace(/<br\s*\/?>/gi, '\n')  // <br> tags become single newlines
+      .replace(/<\/?[^>]+>/g, '')     // Remove all other HTML tags
+      .replace(/\n{3,}/g, '\n\n')     // Normalize multiple newlines to double
+      .trim();
+    
+    // Fallback to textContent if extraction failed
+    if (!plainText || plainText.length < 10) {
+      plainText = this.thesisEditor.textContent || this.thesisEditor.innerText || '';
+    }
+    
     return {
-      html: this.thesisEditor.innerHTML,
-      plainText: this.thesisEditor.textContent || this.thesisEditor.innerText
+      html: html,
+      plainText: plainText
     };
   }
 
@@ -1969,6 +1989,72 @@ class ThesisEditor {
   }
 
   // Helper: Try to replace text using exact match (sentence-level)
+  /**
+   * Find paragraph element by index (if paragraphIndex is provided in change)
+   * @param {number} paragraphIndex - Index of paragraph to find
+   * @returns {HTMLElement|null} Paragraph element or null
+   */
+  findParagraphByIndex(paragraphIndex) {
+    if (paragraphIndex === undefined || paragraphIndex === null) {
+      return null;
+    }
+
+    // Try to find paragraphs by HTML structure
+    const paragraphs = this.thesisEditor.querySelectorAll('p, div');
+    if (paragraphIndex < paragraphs.length) {
+      return paragraphs[paragraphIndex];
+    }
+
+    // Fallback: split by double line breaks
+    const plainText = this.thesisEditor.textContent || this.thesisEditor.innerText;
+    const textParagraphs = plainText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    
+    if (paragraphIndex < textParagraphs.length) {
+      // Find the paragraph in DOM by searching for its text
+      const targetText = textParagraphs[paragraphIndex].trim();
+      const walker = document.createTreeWalker(
+        this.thesisEditor,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+      
+      let textNode;
+      while (textNode = walker.nextNode()) {
+        if (textNode.textContent.includes(targetText.substring(0, 50))) {
+          return textNode.parentElement;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find text within a specific paragraph
+   * @param {HTMLElement} paragraph - Paragraph element
+   * @param {string} searchText - Text to find
+   * @returns {Object|null} Object with start and end positions, or null
+   */
+  findTextInParagraph(paragraph, searchText) {
+    if (!paragraph || !searchText) {
+      return null;
+    }
+
+    const paraText = paragraph.textContent || paragraph.innerText || '';
+    const index = paraText.indexOf(searchText);
+    
+    if (index >= 0) {
+      return {
+        start: index,
+        end: index + searchText.length,
+        text: paraText
+      };
+    }
+
+    return null;
+  }
+
   tryReplaceByExactMatch(searchText, newText) {
     // Get plain text to find sentence boundaries
     const plainText = this.thesisEditor.textContent || this.thesisEditor.innerText;
@@ -2413,6 +2499,7 @@ class ThesisEditor {
         const newText = change.newText || change.newContent || change.after || '';
         const surroundingText = change.surroundingText || '';
         const locationContext = change.locationContext || '';
+        const paragraphIndex = change.paragraphIndex; // NEW: paragraph index from proposal
         
         console.log(`  Action: ${action}`);
         console.log(`  SearchText length: ${searchText.length}`);
@@ -2421,10 +2508,75 @@ class ThesisEditor {
         console.log(`  NewText preview: "${newText.substring(0, 100)}..."`);
         console.log(`  SurroundingText length: ${surroundingText.length}`);
         console.log(`  LocationContext: ${locationContext || 'none'}`);
+        console.log(`  ParagraphIndex: ${paragraphIndex !== undefined ? paragraphIndex : 'not specified'}`);
         
         if (!newText) {
           console.warn(`⚠ Skipping change ${index + 1}: no newText provided`);
           return;
+        }
+        
+        // If paragraphIndex is provided, try to use it for better matching
+        if (paragraphIndex !== undefined && paragraphIndex !== null && action === 'replace' && searchText) {
+          console.log(`  Attempting paragraph-based replacement (paragraph ${paragraphIndex})...`);
+          const paragraph = this.findParagraphByIndex(paragraphIndex);
+          if (paragraph) {
+            const match = this.findTextInParagraph(paragraph, searchText);
+            if (match) {
+              // Found text in the specified paragraph - replace it
+              const range = document.createRange();
+              const walker = document.createTreeWalker(
+                paragraph,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+              );
+              
+              let textNode;
+              let cumulativePos = 0;
+              let startNode = null;
+              let startOffset = 0;
+              let endNode = null;
+              let endOffset = 0;
+              
+              while (textNode = walker.nextNode()) {
+                const nodeLength = textNode.textContent.length;
+                if (startNode === null && cumulativePos + nodeLength >= match.start) {
+                  startNode = textNode;
+                  startOffset = match.start - cumulativePos;
+                }
+                if (cumulativePos + nodeLength >= match.end) {
+                  endNode = textNode;
+                  endOffset = match.end - cumulativePos;
+                  break;
+                }
+                cumulativePos += nodeLength;
+              }
+              
+              if (startNode && endNode) {
+                try {
+                  range.setStart(startNode, startOffset);
+                  range.setEnd(endNode, endOffset);
+                  range.deleteContents();
+                  
+                  // Insert new text
+                  const lines = newText.split('\n');
+                  lines.forEach((line, idx) => {
+                    if (idx > 0) {
+                      range.insertNode(document.createElement('br'));
+                    }
+                    range.insertNode(document.createTextNode(line));
+                  });
+                  
+                  console.log(`✓ Successfully replaced text using paragraph ${paragraphIndex}`);
+                  anyApplied = true;
+                  return; // Successfully applied, skip to next change
+                } catch (error) {
+                  console.warn(`⚠ Error replacing in paragraph ${paragraphIndex}, falling back to standard method:`, error);
+                }
+              }
+            }
+          }
+          console.log(`⚠ Could not find text in paragraph ${paragraphIndex}, falling back to standard matching`);
         }
         
         // If editor is empty, just set the content directly with diff view

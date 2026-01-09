@@ -46,6 +46,10 @@ class ResearchAgent {
     this.approveEditBtn = document.getElementById('approve-edit-btn');
     this.rejectEditBtn = document.getElementById('reject-edit-btn');
     this.currentProposal = null; // Store current edit proposal
+    this.originalEditRequest = null; // Store original edit request for regeneration
+    this.originalEditContext = null; // Store original context (thesis content, loaded contexts)
+    this.rejectionCount = 0; // Track number of rejections for this request
+    this.maxRetries = 3; // Maximum number of proposal regenerations
     
     // Track collapse states
     this.contextsPanelExpanded = true;
@@ -875,6 +879,7 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
         apiKey: this.geminiApiKey,
         userIntention: message,
         thesisContent: thesisContent.plainText,
+        thesisHTML: thesisContent.html, // Pass HTML for better paragraph detection
         loadedContexts: loadedContexts
       });
 
@@ -953,6 +958,15 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
         
         // Store proposal and display it
         this.currentProposal = proposal;
+        
+        // Store original request and context for potential regeneration
+        this.originalEditRequest = message;
+        this.originalEditContext = {
+          thesisContent: thesisContent.plainText,
+          loadedContexts: loadedContexts
+        };
+        this.rejectionCount = 0; // Reset rejection count for new request
+        
         this.displayEditProposal(proposal);
       } else {
         this.updateMessage(thinkingId, 'Failed to generate edit proposal. Please try again.');
@@ -1134,6 +1148,63 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       reasoningEl.textContent = proposal.reasoning || 'No reasoning provided';
     }
 
+    // Show review results if available
+    if (proposal.review) {
+      const reviewSection = this.editProposalModal.querySelector('#proposal-review');
+      const verdictBadge = this.editProposalModal.querySelector('#review-verdict-badge');
+      const issuesSection = this.editProposalModal.querySelector('#review-issues');
+      const issuesList = this.editProposalModal.querySelector('#review-issues-list');
+      const suggestionsSection = this.editProposalModal.querySelector('#review-suggestions');
+      const suggestionsList = this.editProposalModal.querySelector('#review-suggestions-list');
+      
+      if (reviewSection && verdictBadge) {
+        reviewSection.style.display = 'block';
+        
+        // Set verdict badge
+        const verdict = proposal.review.overallVerdict || (proposal.review.approved ? 'approve' : 'reject');
+        verdictBadge.textContent = verdict === 'approve' ? '✅ Approved' : 
+                                   verdict === 'approve_with_suggestions' ? '⚠️ Approved with Suggestions' : 
+                                   '❌ Rejected';
+        verdictBadge.className = `review-badge ${verdict === 'approve' ? 'approved' : verdict === 'approve_with_suggestions' ? 'warning' : 'rejected'}`;
+        
+        // Show issues if any
+        if (proposal.review.issues && proposal.review.issues.length > 0) {
+          issuesSection.style.display = 'block';
+          issuesList.innerHTML = '';
+          proposal.review.issues.forEach(issue => {
+            const li = document.createElement('li');
+            const severityClass = issue.severity === 'blocker' ? 'blocker' : issue.severity === 'warning' ? 'warning' : 'nit';
+            li.className = `review-issue ${severityClass}`;
+            li.innerHTML = `
+              <strong>[${issue.severity.toUpperCase()}]</strong> ${issue.type}: ${issue.description}
+              ${issue.suggestion ? `<br><em>Suggestion: ${issue.suggestion}</em>` : ''}
+            `;
+            issuesList.appendChild(li);
+          });
+        } else {
+          issuesSection.style.display = 'none';
+        }
+        
+        // Show suggestions if any
+        if (proposal.review.suggestions && proposal.review.suggestions.length > 0) {
+          suggestionsSection.style.display = 'block';
+          suggestionsList.innerHTML = '';
+          proposal.review.suggestions.forEach(suggestion => {
+            const li = document.createElement('li');
+            li.textContent = suggestion;
+            suggestionsList.appendChild(li);
+          });
+        } else {
+          suggestionsSection.style.display = 'none';
+        }
+      }
+    } else {
+      const reviewSection = this.editProposalModal.querySelector('#proposal-review');
+      if (reviewSection) {
+        reviewSection.style.display = 'none';
+      }
+    }
+
     // Show modal
     this.editProposalModal.classList.add('active');
     console.log('Edit proposal modal shown');
@@ -1173,6 +1244,12 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
           }
           
           this.addMessage('agent', '✓ Edit applied successfully! Check the thesis editor to see the changes.');
+          
+          // Reset rejection tracking since edit was approved
+          this.rejectionCount = 0;
+          this.originalEditRequest = null;
+          this.originalEditContext = null;
+          
           this.closeEditProposal();
           
           // Switch to thesis tab first if in agent tab
@@ -1320,9 +1397,88 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     }
   }
 
-  rejectEdit() {
+  async rejectEdit() {
+    this.rejectionCount++;
+    
+    // Close the current proposal modal
     this.closeEditProposal();
-    this.addMessage('agent', 'Edit proposal rejected.');
+    
+    // Check if we should generate a new proposal
+    if (this.rejectionCount < this.maxRetries && this.originalEditRequest && this.originalEditContext) {
+      this.addMessage('agent', `Edit proposal rejected. Generating alternative proposal (attempt ${this.rejectionCount + 1}/${this.maxRetries})...`);
+      
+      // Generate a new proposal with feedback about the rejection
+      const thinkingId = this.addMessage('agent', 'Generating alternative edit proposal...', true);
+      
+      try {
+        // Call edit proposal IPC handler with feedback about previous rejection
+        const result = await window.electronAPI.proposeThesisEdit({
+          apiKey: this.geminiApiKey,
+          userIntention: `${this.originalEditRequest}\n\nNote: Previous proposal was rejected. Please try a different approach. Consider: different location, different style, or different content focus.`,
+          thesisContent: this.originalEditContext.thesisContent,
+          loadedContexts: this.originalEditContext.loadedContexts,
+          previousRejectionCount: this.rejectionCount
+        });
+
+        if (result.error) {
+          this.updateMessage(thinkingId, `Error generating alternative proposal: ${result.error}`);
+          this.addMessage('agent', 'Unable to generate alternative proposal. Please try modifying your request.');
+        } else if (result.success && result.proposal) {
+          // Process references if any papers need to be added (same as original)
+          let proposal = result.proposal;
+          
+          if (result.referencesToCreate && result.referencesToCreate.length > 0) {
+            const paperToRefIdMap = new Map();
+            
+            let retries = 0;
+            while (!window.createReferenceFromPaper && retries < 5) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+              retries++;
+            }
+            
+            if (window.createReferenceFromPaper) {
+              for (const paperData of result.referencesToCreate) {
+                try {
+                  const refId = window.createReferenceFromPaper(paperData);
+                  if (refId) {
+                    paperToRefIdMap.set(paperData.paperIndex, refId);
+                  }
+                } catch (error) {
+                  console.error(`Error creating reference:`, error);
+                }
+              }
+              
+              if (paperToRefIdMap.size > 0) {
+                proposal = this.replacePaperCitations(proposal, paperToRefIdMap);
+              }
+            }
+          }
+          
+          this.updateMessage(thinkingId, `✓ Alternative edit proposal generated! Review the new proposal below.`);
+          
+          // Store and display new proposal
+          this.currentProposal = proposal;
+          this.displayEditProposal(proposal);
+        } else {
+          this.updateMessage(thinkingId, 'Failed to generate alternative proposal. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error generating alternative proposal:', error);
+        this.updateMessage(thinkingId, `Error: ${error.message}`);
+        this.addMessage('agent', 'Unable to generate alternative proposal. Please try modifying your request.');
+      }
+    } else {
+      // Max retries reached or no original request stored
+      if (this.rejectionCount >= this.maxRetries) {
+        this.addMessage('agent', `Edit proposal rejected. Maximum retry attempts (${this.maxRetries}) reached. Please refine your request and try again.`);
+        // Reset for next attempt
+        this.rejectionCount = 0;
+        this.originalEditRequest = null;
+        this.originalEditContext = null;
+      } else {
+        this.addMessage('agent', 'Edit proposal rejected.');
+      }
+    }
   }
 
   closeEditProposal() {
