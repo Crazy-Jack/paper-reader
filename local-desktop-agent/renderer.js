@@ -773,10 +773,115 @@ class ThesisEditor {
   }
 
   deleteReference(refId) {
-    if (confirm('Are you sure you want to delete this reference?')) {
+    if (confirm('Are you sure you want to delete this reference? This will also remove all citations of this reference from your thesis.')) {
+      // Remove all citations of this reference from the thesis editor
+      this.removeCitationsFromThesis(refId);
+      
+      // Remove the reference from the list
       this.references = this.references.filter(r => r.id !== refId);
       this.renderReferences();
       this.saveToStorage();
+    }
+  }
+
+  // Remove all citations of a reference from the thesis editor
+  removeCitationsFromThesis(refId) {
+    const editor = this.thesisEditor;
+    if (!editor) return;
+    
+    const citationText = `[@${refId}]`;
+    let removedCount = 0;
+    
+    // First, try to find wrapped citations
+    const citationSelector = `span.citation-wrapper[data-citation-ref="${refId}"]`;
+    const citations = Array.from(editor.querySelectorAll(citationSelector));
+    const parentsToNormalize = new Set();
+    
+    // Remove each citation wrapper and clean up surrounding whitespace
+    citations.forEach(citation => {
+      const parent = citation.parentNode;
+      if (!parent) return;
+      
+      // Store parent for later normalization
+      parentsToNormalize.add(parent);
+      
+      // Check for whitespace before and after the citation
+      const prevSibling = citation.previousSibling;
+      const nextSibling = citation.nextSibling;
+      
+      // Remove the citation span
+      parent.removeChild(citation);
+      removedCount++;
+      
+      // Clean up extra spaces: if previous sibling ends with space and next starts with space,
+      // merge them to a single space
+      if (prevSibling && nextSibling && 
+          prevSibling.nodeType === Node.TEXT_NODE && 
+          nextSibling.nodeType === Node.TEXT_NODE) {
+        const prevText = prevSibling.textContent;
+        const nextText = nextSibling.textContent;
+        
+        // If both end/start with space, clean up
+        if (prevText.endsWith(' ') && nextText.startsWith(' ')) {
+          nextSibling.textContent = nextText.substring(1); // Remove leading space from next
+        }
+      }
+    });
+    
+    // Also check for unwrapped citations (in case they weren't wrapped yet)
+    if (removedCount === 0) {
+      const escapedCitation = citationText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const citationRegex = new RegExp(escapedCitation, 'g');
+      
+      // Find text nodes containing this citation that aren't already wrapped
+      const walker = document.createTreeWalker(
+        editor,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode: (node) => {
+            // Skip if parent is already a citation wrapper
+            if (node.parentElement && 
+                (node.parentElement.classList.contains('citation-wrapper') || 
+                 node.parentElement.classList.contains('citation-highlight'))) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            // Only accept nodes that contain the citation
+            if (node.textContent && node.textContent.includes(citationText)) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_REJECT;
+          }
+        },
+        false
+      );
+      
+      let textNode;
+      while (textNode = walker.nextNode()) {
+        const text = textNode.textContent;
+        if (text.includes(citationText)) {
+          // Remove the citation from text, clean up extra spaces
+          let newText = text.replace(citationRegex, '');
+          // Replace multiple spaces with single space
+          newText = newText.replace(/\s+/g, ' ').trim();
+          textNode.textContent = newText;
+          removedCount++;
+        }
+      }
+    }
+    
+    // Normalize only the specific parent elements that contained citations
+    // This is safer than normalizing the entire editor
+    if (removedCount > 0 && parentsToNormalize.size > 0) {
+      // Only normalize parents that actually had citations removed
+      parentsToNormalize.forEach(parent => {
+        if (editor.contains(parent)) {
+          parent.normalize();
+        }
+      });
+    }
+    
+    if (removedCount > 0) {
+      console.log(`Removed ${removedCount} citation(s) of reference ${refId} from thesis`);
     }
   }
 
