@@ -951,7 +951,10 @@ class ThesisEditor {
           caption.addEventListener('input', () => this.saveToStorage());
         });
         
-        // Attach approve buttons to any existing edit-added elements
+        // Reattach event handlers to existing buttons in loaded content
+        this.reattachButtonHandlers();
+        
+        // Attach approve buttons to any existing edit-added elements that aren't wrapped yet
         this.attachApproveButtonsToExistingEdits();
       } catch (e) {
         console.error('Error loading saved data:', e);
@@ -1079,6 +1082,57 @@ class ThesisEditor {
       parent = parent.parentNode;
     }
     return false;
+  }
+
+  // Helper: Reattach event handlers to existing buttons in loaded content
+  reattachButtonHandlers() {
+    // Find all edit-wrapper structures that were loaded from storage
+    const editWrappers = this.thesisEditor.querySelectorAll('.edit-wrapper');
+    
+    editWrappers.forEach((editWrapper) => {
+      // Find the diff container and buttons
+      const diffContainer = editWrapper.querySelector('.edit-diff-container');
+      const approveWrapper = editWrapper.querySelector('.edit-approve-wrapper');
+      const approveBtn = approveWrapper?.querySelector('.edit-approve-btn');
+      const rejectBtn = approveWrapper?.querySelector('.edit-reject-btn');
+      
+      if (!diffContainer || !approveBtn || !rejectBtn) {
+        return; // Skip if structure is incomplete
+      }
+      
+      // Restore references
+      diffContainer._approveWrapper = approveWrapper;
+      diffContainer._editWrapper = editWrapper;
+      
+      // Remove old event listeners by cloning and replacing (clears all listeners)
+      const newApproveBtn = approveBtn.cloneNode(true);
+      const newRejectBtn = rejectBtn.cloneNode(true);
+      
+      // Attach new event handlers
+      newApproveBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.acceptEdit(diffContainer);
+      };
+      newApproveBtn.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      
+      newRejectBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.rejectEdit(diffContainer);
+      };
+      newRejectBtn.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      
+      // Replace old buttons with new ones that have handlers
+      approveWrapper.replaceChild(newApproveBtn, approveBtn);
+      approveWrapper.replaceChild(newRejectBtn, rejectBtn);
+    });
   }
 
   // Helper: Scan for existing edit-added elements and attach approve buttons
