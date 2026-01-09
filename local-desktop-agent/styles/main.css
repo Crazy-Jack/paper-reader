@@ -1500,6 +1500,7 @@ del.edit-deleted {
   z-index: 10;
   white-space: nowrap;
   min-width: 80px;
+  margin-right: 6px;
 }
 
 .edit-approve-btn:hover {
@@ -1508,4 +1509,34 @@ del.edit-deleted {
 
 .edit-approve-btn:active {
   background-color: #1e8449 !important;
+}
+
+/* Reject button for rejecting edits - always visible at the end of edited block */
+.edit-reject-btn {
+  display: inline-block !important;
+  padding: 6px 12px;
+  background-color: #e74c3c !important;
+  color: white !important;
+  border: 1px solid #c0392b !important;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  vertical-align: middle;
+  line-height: 1.2;
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative;
+  z-index: 10;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.edit-reject-btn:hover {
+  background-color: #c0392b !important;
+}
+
+.edit-reject-btn:active {
+  background-color: #a93226 !important;
 }

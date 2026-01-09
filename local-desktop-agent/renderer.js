@@ -1124,10 +1124,11 @@ class ThesisEditor {
     diffContainer.appendChild(addedElement);
     editWrapper.appendChild(diffContainer);
     
-    // Add approve button
+    // Add approve/reject button wrapper
     const approveWrapper = document.createElement('span');
     approveWrapper.className = 'edit-approve-wrapper';
     
+    // Accept button
     const approveBtn = document.createElement('button');
     approveBtn.className = 'edit-approve-btn';
     approveBtn.textContent = '✓ Accept';
@@ -1144,7 +1145,25 @@ class ThesisEditor {
       e.stopPropagation();
     };
     
+    // Reject button
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'edit-reject-btn';
+    rejectBtn.textContent = '✗ Reject';
+    rejectBtn.title = 'Reject this edit';
+    rejectBtn.setAttribute('aria-label', 'Reject edit');
+    rejectBtn.type = 'button';
+    rejectBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.rejectEdit(diffContainer);
+    };
+    rejectBtn.onmousedown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    
     approveWrapper.appendChild(approveBtn);
+    approveWrapper.appendChild(rejectBtn);
     editWrapper.appendChild(approveWrapper);
     
     // Store references
@@ -1224,10 +1243,11 @@ class ThesisEditor {
     // Move diff container into wrapper
     editWrapper.appendChild(diffContainer);
     
-    // Add approve button wrapper that will appear after the diff container
+    // Add approve/reject button wrapper that will appear after the diff container
     const approveWrapper = document.createElement('span');
     approveWrapper.className = 'edit-approve-wrapper';
     
+    // Accept button
     const approveBtn = document.createElement('button');
     approveBtn.className = 'edit-approve-btn';
     approveBtn.textContent = '✓ Accept';
@@ -1243,7 +1263,26 @@ class ThesisEditor {
       e.preventDefault(); // Prevent text selection
       e.stopPropagation();
     };
+    
+    // Reject button
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'edit-reject-btn';
+    rejectBtn.textContent = '✗ Reject';
+    rejectBtn.title = 'Reject this edit';
+    rejectBtn.setAttribute('aria-label', 'Reject edit');
+    rejectBtn.type = 'button';
+    rejectBtn.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.rejectEdit(diffContainer);
+    };
+    rejectBtn.onmousedown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    
     approveWrapper.appendChild(approveBtn);
+    approveWrapper.appendChild(rejectBtn);
     editWrapper.appendChild(approveWrapper);
     
     // Store reference for acceptEdit
@@ -1310,82 +1349,130 @@ class ThesisEditor {
     console.log('✓ Edit accepted - deleted text removed, added text normalized');
   }
 
-  // Helper: Try to replace text using exact match
-  tryReplaceByExactMatch(searchText, newText) {
-    const walker = document.createTreeWalker(
-      this.thesisEditor,
-      NodeFilter.SHOW_TEXT,
-      null,
-      false
-    );
+  // Helper: Reject an edit - remove the entire edit (both deleted and added text)
+  rejectEdit(diffContainer) {
+    // Get the edit wrapper (parent container that holds diff container and approve button)
+    const editWrapper = diffContainer._editWrapper || 
+      (diffContainer.parentNode && diffContainer.parentNode.classList.contains('edit-wrapper') 
+        ? diffContainer.parentNode 
+        : null);
     
-    let textNode;
-    while (textNode = walker.nextNode()) {
-      const nodeText = textNode.textContent;
-      if (nodeText && nodeText.includes(searchText)) {
-        const beforeText = textNode.textContent;
-        const parent = textNode.parentNode;
-        
-        // Split the text: before, replacement (diff view), after
-        const beforePart = nodeText.substring(0, nodeText.indexOf(searchText));
-        const afterPart = nodeText.substring(nodeText.indexOf(searchText) + searchText.length);
-        
-        // Create new nodes
-        if (beforePart) {
-          const beforeNode = document.createTextNode(beforePart);
-          parent.insertBefore(beforeNode, textNode);
-        }
-        
-        // Create diff view showing deleted (old) and added (new) text
-        // Note: createDiffView now returns a wrapper containing both diff container and approve button
-        const editWrapper = this.createDiffView(searchText, newText);
-        const diffView = editWrapper.querySelector('.edit-diff-container');
-        parent.insertBefore(editWrapper, textNode);
-        
-        if (afterPart) {
-          const afterNode = document.createTextNode(afterPart);
-          parent.insertBefore(afterNode, textNode);
-        }
-        
-        // Remove original text node
-        parent.removeChild(textNode);
-        
-        console.log('✓ Replaced using exact match in text node');
-        console.log(`  Before: "${beforeText.substring(0, 100)}..."`);
-        console.log(`  After: "${newText.substring(0, 100)}..."`);
-        return true;
+    // Get deleted text if it exists - we want to restore it
+    const deletedSpan = diffContainer.querySelector('.edit-deleted');
+    let originalText = '';
+    if (deletedSpan) {
+      originalText = deletedSpan.textContent;
+    }
+    
+    // Remove the entire edit wrapper
+    if (editWrapper && editWrapper.parentNode) {
+      if (originalText) {
+        // Restore the original text that was deleted
+        const textNode = document.createTextNode(originalText);
+        editWrapper.parentNode.replaceChild(textNode, editWrapper);
+      } else {
+        // No original text to restore, just remove the edit
+        editWrapper.remove();
+      }
+    } else if (diffContainer && diffContainer.parentNode) {
+      // Fallback: if editWrapper not found, just replace diffContainer
+      if (originalText) {
+        const textNode = document.createTextNode(originalText);
+        diffContainer.parentNode.replaceChild(textNode, diffContainer);
+      } else {
+        diffContainer.remove();
       }
     }
-    return false;
+    
+    // Save after rejecting edit
+    this.saveToStorage();
+    
+    console.log('✓ Edit rejected - edit removed, original text restored if available');
   }
 
-  // Helper: Try to replace text using surroundingText to find location
-  tryReplaceBySurroundingText(surroundingText, searchText, newText) {
-    // Normalize whitespace for matching
-    const normalize = (text) => text.replace(/\s+/g, ' ').trim();
-    const normalizedSurrounding = normalize(surroundingText);
-    const normalizedPlainText = normalize(this.thesisEditor.textContent || this.thesisEditor.innerText);
+  // Helper: Split text into sentences
+  splitIntoSentences(text) {
+    // Split by sentence-ending punctuation followed by whitespace or end of string
+    // Matches: . ! ? followed by space, newline, or end of string
+    const sentenceRegex = /([.!?])\s+|([.!?])$/g;
+    const sentences = [];
+    let lastIndex = 0;
+    let match;
     
-    // Try to find surroundingText in the document
-    const surroundingIndex = normalizedPlainText.indexOf(normalizedSurrounding);
-    if (surroundingIndex === -1) {
-      // Try partial match - use a substring of surroundingText
-      const partialLength = Math.min(100, normalizedSurrounding.length);
-      const partialSurrounding = normalizedSurrounding.substring(0, partialLength);
-      const partialIndex = normalizedPlainText.indexOf(partialSurrounding);
-      
-      if (partialIndex === -1) {
-        console.warn('⚠ Could not find surroundingText in document (even partial match)');
-        return false;
+    while ((match = sentenceRegex.exec(text)) !== null) {
+      const sentenceEnd = match.index + match[0].length;
+      const sentence = text.substring(lastIndex, sentenceEnd).trim();
+      if (sentence) {
+        sentences.push({
+          text: sentence,
+          start: lastIndex,
+          end: sentenceEnd
+        });
       }
-      
-      console.log(`✓ Found partial match of surroundingText at index ${partialIndex}`);
-    } else {
-      console.log(`✓ Found surroundingText at index ${surroundingIndex}`);
+      lastIndex = sentenceEnd;
     }
     
-    // Now try to find searchText near the surroundingText location
-    // Use TreeWalker to find text nodes and check if they're near the location
+    // Add remaining text as a sentence if any
+    if (lastIndex < text.length) {
+      const remaining = text.substring(lastIndex).trim();
+      if (remaining) {
+        sentences.push({
+          text: remaining,
+          start: lastIndex,
+          end: text.length
+        });
+      }
+    }
+    
+    // If no sentence boundaries found, treat entire text as one sentence
+    if (sentences.length === 0 && text.trim()) {
+      sentences.push({
+        text: text.trim(),
+        start: 0,
+        end: text.length
+      });
+    }
+    
+    return sentences;
+  }
+
+  // Helper: Find the sentence containing a given text snippet
+  findSentenceContainingText(plainText, searchText) {
+    const sentences = this.splitIntoSentences(plainText);
+    
+    for (const sentence of sentences) {
+      // Check if searchText is contained within this sentence (case-insensitive, normalized)
+      const normalizedSentence = sentence.text.replace(/\s+/g, ' ').toLowerCase();
+      const normalizedSearch = searchText.replace(/\s+/g, ' ').toLowerCase();
+      
+      if (normalizedSentence.includes(normalizedSearch)) {
+        return sentence;
+      }
+    }
+    
+    return null;
+  }
+
+  // Helper: Try to replace text using exact match (sentence-level)
+  tryReplaceByExactMatch(searchText, newText) {
+    // Get plain text to find sentence boundaries
+    const plainText = this.thesisEditor.textContent || this.thesisEditor.innerText;
+    
+    // Find the sentence containing the searchText
+    const containingSentence = this.findSentenceContainingText(plainText, searchText);
+    if (!containingSentence) {
+      console.warn('⚠ Could not find sentence containing searchText');
+      return false;
+    }
+    
+    console.log(`✓ Found sentence containing searchText: "${containingSentence.text.substring(0, 100)}..."`);
+    
+    // Replace the entire sentence, not just the searchText
+    // The old text is the entire sentence, the new text is the replacement sentence
+    const oldSentence = containingSentence.text;
+    const newSentence = newText; // Assuming newText is a complete sentence
+    
+    // Now find and replace this sentence in the DOM
     const walker = document.createTreeWalker(
       this.thesisEditor,
       NodeFilter.SHOW_TEXT,
@@ -1395,57 +1482,145 @@ class ThesisEditor {
     
     let textNode;
     let cumulativeIndex = 0;
+    let targetNodes = [];
+    
+    // Collect all text nodes that make up the sentence
     while (textNode = walker.nextNode()) {
       const nodeText = textNode.textContent || '';
       const nodeLength = nodeText.length;
+      const nodeStart = cumulativeIndex;
+      const nodeEnd = cumulativeIndex + nodeLength;
       
-      // Check if this node contains searchText and is in the right area
-      if (nodeText.includes(searchText)) {
-        // Found searchText in this node - replace it with diff view
-        const beforeText = textNode.textContent;
-        const parent = textNode.parentNode;
-        
-        // Split the text: before, replacement (diff view), after
-        const beforePart = nodeText.substring(0, nodeText.indexOf(searchText));
-        const afterPart = nodeText.substring(nodeText.indexOf(searchText) + searchText.length);
-        
-        // Create new nodes
-        if (beforePart) {
-          const beforeNode = document.createTextNode(beforePart);
-          parent.insertBefore(beforeNode, textNode);
-        }
-        
-        // Create diff view showing deleted (old) and added (new) text
-        // Note: createDiffView now returns a wrapper containing both diff container and approve button
-        const editWrapper = this.createDiffView(searchText, newText);
-        const diffView = editWrapper.querySelector('.edit-diff-container');
-        parent.insertBefore(editWrapper, textNode);
-        
-        if (afterPart) {
-          const afterNode = document.createTextNode(afterPart);
-          parent.insertBefore(afterNode, textNode);
-        }
-        
-        // Remove original text node
-        parent.removeChild(textNode);
-        
-        console.log('✓ Replaced using surroundingText-based location');
-        console.log(`  Before: "${beforeText.substring(0, 100)}..."`);
-        console.log(`  After: "${newText.substring(0, 100)}..."`);
-        return true;
+      // Check if this node overlaps with the sentence
+      if (nodeStart < containingSentence.end && nodeEnd > containingSentence.start) {
+        targetNodes.push({
+          node: textNode,
+          nodeStart: nodeStart,
+          nodeEnd: nodeEnd,
+          nodeText: nodeText
+        });
+      }
+      
+      if (nodeEnd >= containingSentence.end) {
+        break;
       }
       
       cumulativeIndex += nodeLength;
     }
     
-    console.warn('⚠ Found surroundingText location but could not find searchText nearby');
-    return false;
+    if (targetNodes.length === 0) {
+      console.warn('⚠ Could not find text nodes for sentence');
+      return false;
+    }
+    
+    // Replace the sentence: collect all text, then replace with new sentence
+    const parent = targetNodes[0].node.parentNode;
+    const firstNode = targetNodes[0].node;
+    const lastNode = targetNodes[targetNodes.length - 1].node;
+    
+    // Create diff view with entire sentence
+    const editWrapper = this.createDiffView(oldSentence, newSentence);
+    
+    // Find insertion point (before first node)
+    parent.insertBefore(editWrapper, firstNode);
+    
+    // Remove all nodes that were part of the sentence
+    targetNodes.forEach(target => {
+      if (target.node.parentNode === parent) {
+        parent.removeChild(target.node);
+      }
+    });
+    
+    console.log('✓ Replaced entire sentence using exact match');
+    console.log(`  Old sentence: "${oldSentence.substring(0, 100)}..."`);
+    console.log(`  New sentence: "${newSentence.substring(0, 100)}..."`);
+    return true;
   }
 
-  // Helper: Try to insert text using surroundingText to find insertion point
+  // Helper: Try to replace text using surroundingText to find location (sentence-level)
+  tryReplaceBySurroundingText(surroundingText, searchText, newText) {
+    // Get plain text to find sentence boundaries
+    const plainText = this.thesisEditor.textContent || this.thesisEditor.innerText;
+    
+    // Find the sentence containing the searchText
+    const containingSentence = this.findSentenceContainingText(plainText, searchText);
+    if (!containingSentence) {
+      console.warn('⚠ Could not find sentence containing searchText');
+      return false;
+    }
+    
+    console.log(`✓ Found sentence containing searchText: "${containingSentence.text.substring(0, 100)}..."`);
+    
+    // Replace the entire sentence, not just the searchText
+    const oldSentence = containingSentence.text;
+    const newSentence = newText; // Assuming newText is a complete sentence
+    
+    // Now find and replace this sentence in the DOM
+    const walker = document.createTreeWalker(
+      this.thesisEditor,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+    
+    let textNode;
+    let cumulativeIndex = 0;
+    let targetNodes = [];
+    
+    // Collect all text nodes that make up the sentence
+    while (textNode = walker.nextNode()) {
+      const nodeText = textNode.textContent || '';
+      const nodeLength = nodeText.length;
+      const nodeStart = cumulativeIndex;
+      const nodeEnd = cumulativeIndex + nodeLength;
+      
+      // Check if this node overlaps with the sentence
+      if (nodeStart < containingSentence.end && nodeEnd > containingSentence.start) {
+        targetNodes.push({
+          node: textNode,
+          nodeStart: nodeStart,
+          nodeEnd: nodeEnd
+        });
+      }
+      
+      if (nodeEnd >= containingSentence.end) {
+        break;
+      }
+      
+      cumulativeIndex += nodeLength;
+    }
+    
+    if (targetNodes.length === 0) {
+      console.warn('⚠ Could not find text nodes for sentence');
+      return false;
+    }
+    
+    // Replace the sentence
+    const parent = targetNodes[0].node.parentNode;
+    const firstNode = targetNodes[0].node;
+    
+    // Create diff view with entire sentence
+    const editWrapper = this.createDiffView(oldSentence, newSentence);
+    
+    // Insert before first node
+    parent.insertBefore(editWrapper, firstNode);
+    
+    // Remove all nodes that were part of the sentence
+    targetNodes.forEach(target => {
+      if (target.node.parentNode === parent) {
+        parent.removeChild(target.node);
+      }
+    });
+    
+    console.log('✓ Replaced entire sentence using surroundingText-based location');
+    console.log(`  Old sentence: "${oldSentence.substring(0, 100)}..."`);
+    console.log(`  New sentence: "${newSentence.substring(0, 100)}..."`);
+    return true;
+  }
+
+  // Helper: Try to insert text using surroundingText to find insertion point (sentence-level)
   tryInsertBySurroundingText(surroundingText, newText, locationContext) {
     // Find the actual surrounding text in the DOM (without normalization)
-    // This ensures we insert at the correct location
     const plainText = this.thesisEditor.textContent || this.thesisEditor.innerText;
     
     // Try to find surroundingText in the actual document text
@@ -1468,8 +1643,7 @@ class ThesisEditor {
           return false;
         }
         
-        // Map normalized index back to actual text - find the position in original text
-        // This is approximate but better than nothing
+        // Map normalized index back to actual text
         surroundingIndex = this.findActualTextPosition(plainText, normalizedPlainText, partialIndex + partialLength);
         console.log(`✓ Found partial match of surroundingText for insertion`);
       } else {
@@ -1482,6 +1656,29 @@ class ThesisEditor {
       surroundingIndex = surroundingIndex + surroundingText.length;
       console.log(`✓ Found surroundingText for insertion at index ${surroundingIndex}`);
     }
+    
+    // Find the sentence that contains or follows this insertion point
+    const sentences = this.splitIntoSentences(plainText);
+    let targetSentenceIndex = -1;
+    
+    // Find which sentence the insertion point falls into or after
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i];
+      if (surroundingIndex <= sentence.end) {
+        // Insert at the end of this sentence (sentence boundary)
+        targetSentenceIndex = i;
+        surroundingIndex = sentence.end; // Move to end of sentence
+        break;
+      }
+    }
+    
+    // If insertion point is after all sentences, insert at the end
+    if (targetSentenceIndex === -1) {
+      targetSentenceIndex = sentences.length - 1;
+      surroundingIndex = plainText.length;
+    }
+    
+    console.log(`✓ Inserting at sentence boundary (end of sentence ${targetSentenceIndex + 1})`);
     
     // Use TreeWalker to find the text node and exact position
     const walker = document.createTreeWalker(
@@ -1563,32 +1760,12 @@ class ThesisEditor {
       return false;
     }
     
-    // Insert the new text at the exact insertion point
+    // Insert the new text at sentence boundary (end of the sentence)
+    // We already adjusted surroundingIndex to be at the end of a sentence
     const parent = targetNode.parentNode;
     const nodeText = targetNode.textContent;
     
-    // Ensure we're inserting at a word boundary (not in the middle of a word)
-    // Check characters around insertion point
-    const charBefore = insertionOffset > 0 ? nodeText[insertionOffset - 1] : '';
-    const charAt = nodeText[insertionOffset] || '';
-    const isWordChar = (c) => c && /[a-zA-Z0-9]/.test(c);
-    const isPunctuation = (c) => c && /[.,;:!?]/.test(c);
-    const isWhitespace = (c) => c && /\s/.test(c);
-    
-    // If we're in the middle of a word, find the nearest word boundary
-    if (isWordChar(charBefore) && isWordChar(charAt)) {
-      // We're in the middle of a word - find the end of the word
-      let adjustedOffset = insertionOffset;
-      while (adjustedOffset < nodeText.length && isWordChar(nodeText[adjustedOffset])) {
-        adjustedOffset++;
-      }
-      insertionOffset = adjustedOffset;
-      console.log('✓ Adjusted insertion point to end of word (was in middle of word)');
-    } else if (isWordChar(charBefore) && !isWhitespace(charAt) && !isPunctuation(charAt)) {
-      // We're right after a word but before another word - insert space
-      // Keep insertionOffset as is, we'll add space
-    }
-    
+    // Split the text at insertion point (which should be at sentence end)
     const beforeText = nodeText.substring(0, insertionOffset);
     const afterText = nodeText.substring(insertionOffset);
     
@@ -1598,19 +1775,18 @@ class ThesisEditor {
       parent.insertBefore(beforeNode, targetNode);
     }
     
-    // Add space before insertion if we're not already at whitespace/punctuation
+    // Add a space before the new sentence if needed
     const needsSpaceBefore = beforeText && 
-      !isWhitespace(beforeText[beforeText.length - 1]) && 
-      !isPunctuation(beforeText[beforeText.length - 1]) &&
-      !isWhitespace(afterText[0]) &&
-      !isPunctuation(afterText[0]);
+      !/\s$/.test(beforeText) && // Not already ending with whitespace
+      !newText.startsWith(' ') && // New text doesn't start with space
+      beforeText.trim().length > 0; // Before text is not empty
     
     if (needsSpaceBefore) {
       const spaceNode = document.createTextNode(' ');
       parent.insertBefore(spaceNode, targetNode);
     }
     
-    // Create diff view for inserted text (only "added", no "deleted")
+    // Create diff view for inserted sentence (only "added", no "deleted")
     const addedSpan = document.createElement('ins');
     addedSpan.className = 'edit-added';
     const lines = newText.split('\n');
@@ -1623,18 +1799,6 @@ class ThesisEditor {
     const editWrapper = this.wrapEditWithApproveButton(addedSpan);
     parent.insertBefore(editWrapper, targetNode);
     
-    // Add space after insertion if needed
-    const needsSpaceAfter = afterText && 
-      !isWhitespace(afterText[0]) && 
-      !isPunctuation(afterText[0]) &&
-      !newText.endsWith(' ') &&
-      !newText.endsWith('\n');
-    
-    if (needsSpaceAfter) {
-      const spaceNode = document.createTextNode(' ');
-      parent.insertBefore(spaceNode, targetNode);
-    }
-    
     // Create new text node for after part
     if (afterText) {
       const afterNode = document.createTextNode(afterText);
@@ -1644,7 +1808,7 @@ class ThesisEditor {
     // Remove original node
     parent.removeChild(targetNode);
     
-    console.log('✓ Inserted new text using surroundingText-based location');
+    console.log('✓ Inserted new sentence at sentence boundary');
     return true;
   }
 
