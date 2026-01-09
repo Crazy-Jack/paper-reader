@@ -5,9 +5,12 @@ class ThesisEditor {
     this.editingRefId = null;
     this.nextRefId = 1;
     this.nextImageId = 1;
+    this.highlightedRefId = null; // Track currently highlighted reference
     
     this.init();
     this.loadFromStorage();
+    // Wrap citations in spans after loading content
+    setTimeout(() => this.ensureCitationsWrapped(), 100);
     this.initTabs();
   }
   
@@ -840,8 +843,10 @@ class ThesisEditor {
 
     this.referencesList.innerHTML = this.references.map(ref => {
       const citation = `[@${ref.id}]`;
+      const isHighlighted = this.highlightedRefId === ref.id;
+      const highlightClass = isHighlighted ? 'highlighted' : '';
       return `
-        <div class="reference-item" data-ref-id="${ref.id}">
+        <div class="reference-item ${highlightClass}" data-ref-id="${ref.id}">
           <div class="reference-header">
             <div>
               <div class="reference-id">${citation}</div>
@@ -851,7 +856,7 @@ class ThesisEditor {
           <div class="reference-meta">
             ${ref.authors ? `<div><strong>Authors:</strong> ${this.escapeHtml(ref.authors)}</div>` : ''}
             ${ref.year ? `<div><strong>Year:</strong> ${ref.year}</div>` : ''}
-            ${ref.venue ? `<div><strong>Venue:</strong> ${this.escapeHtml(ref.venue)}</div>` : ''}
+            ${ref.venue ? `<div><strong>Venue:</strong> ${this.escapeHtml(ref.venue)}${ref.presentation ? ` (${this.escapeHtml(ref.presentation)})` : ''}</div>` : ''}
             ${ref.url ? `<div><strong>URL:</strong> <a href="${this.escapeHtml(ref.url)}" target="_blank">${this.escapeHtml(ref.url)}</a></div>` : ''}
             ${ref.notes ? `<div style="margin-top: 0.5rem; font-style: italic;">${this.escapeHtml(ref.notes)}</div>` : ''}
           </div>
@@ -863,14 +868,357 @@ class ThesisEditor {
         </div>
       `;
     }).join('');
+    
+    // Add click handlers for highlighting citations
+    this.referencesList.querySelectorAll('.reference-item').forEach(item => {
+      const refId = item.getAttribute('data-ref-id');
+      
+      // Add click handler to the entire reference item (but not buttons)
+      item.addEventListener('click', (e) => {
+        // Don't trigger if clicking on buttons or links
+        if (e.target.closest('.reference-actions') || e.target.closest('a')) {
+          return;
+        }
+        
+        e.stopPropagation();
+        this.toggleCitationHighlight(refId);
+      });
+    });
   }
 
   insertCitationForRef(refId) {
     const ref = this.references.find(r => r.id === refId);
     if (!ref) return;
-
+    
+    // Insert citation and wrap it immediately
     this.insertTextAtCursor(`[@${refId}]`);
+    // Wrap the newly inserted citation
+    setTimeout(() => this.ensureCitationsWrapped(), 50);
     this.saveToStorage();
+  }
+
+  // Toggle citation highlighting in thesis editor
+  toggleCitationHighlight(refId) {
+    // If clicking the same reference, deselect
+    if (this.highlightedRefId === refId) {
+      this.clearCitationHighlight();
+      return;
+    }
+    
+    // Clear previous highlight
+    this.clearCitationHighlight();
+    
+    // Highlight new reference
+    this.highlightedRefId = refId;
+    this.highlightCitations(refId);
+    this.renderReferences(); // Update UI to show highlighted state
+  }
+
+  // Ensure all citations are wrapped in spans (call this once, idempotent)
+  ensureCitationsWrapped() {
+    const editor = this.thesisEditor;
+    if (!editor) return;
+    
+    // Quick check: if all citations are already wrapped, skip
+    const allText = editor.textContent || '';
+    const citationMatches = allText.match(/\[@[^\]]+\]/g);
+    if (!citationMatches || citationMatches.length === 0) {
+      return; // No citations to wrap
+    }
+    
+    // Check if citations are already wrapped (quick check)
+    const existingWrappers = editor.querySelectorAll('.citation-wrapper');
+    if (existingWrappers.length === citationMatches.length) {
+      // All citations might already be wrapped, but verify
+      let allWrapped = true;
+      citationMatches.forEach(citationText => {
+        const refId = citationText.match(/\[@([^\]]+)\]/)[1];
+        const wrapper = editor.querySelector(`.citation-wrapper[data-citation-ref="${refId}"]`);
+        if (!wrapper || wrapper.textContent !== citationText) {
+          allWrapped = false;
+        }
+      });
+      if (allWrapped) {
+        return; // All citations are already wrapped
+      }
+    }
+    
+    let iterationCount = 0;
+    const maxIterations = 1000;
+    
+    while (iterationCount < maxIterations) {
+      iterationCount++;
+      
+      // Find text nodes containing citations that are NOT already wrapped
+      const walker = document.createTreeWalker(
+        editor,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode: (node) => {
+            // Skip if parent is already a citation wrapper
+            const parent = node.parentElement;
+            if (parent && 
+                (parent.classList.contains('citation-wrapper') || 
+                 parent.classList.contains('citation-highlight'))) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            // Only accept nodes that contain citations
+            if (node.textContent && /\[@[^\]]+\]/.test(node.textContent)) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_REJECT;
+          }
+        },
+        false
+      );
+      
+      const textNode = walker.nextNode();
+      if (!textNode) break; // No more unwrapped citations
+      
+      const text = textNode.textContent;
+      const match = text.match(/\[@[^\]]+\]/);
+      
+      if (!match) continue;
+      
+      const index = match.index;
+      const citationText = match[0];
+      const parent = textNode.parentNode;
+      if (!parent) continue;
+      
+      // Split: before, citation, after
+      const beforeText = text.substring(0, index);
+      const afterText = text.substring(index + citationText.length);
+      
+      // Create fragment
+      const fragment = document.createDocumentFragment();
+      
+      if (beforeText) {
+        fragment.appendChild(document.createTextNode(beforeText));
+      }
+      
+      // Wrap citation in span with class 'citation-wrapper'
+      const citationSpan = document.createElement('span');
+      citationSpan.className = 'citation-wrapper';
+      citationSpan.textContent = citationText;
+      const refIdMatch = citationText.match(/\[@([^\]]+)\]/);
+      if (refIdMatch) {
+        citationSpan.setAttribute('data-citation-ref', refIdMatch[1]);
+      }
+      citationSpan.setAttribute('contenteditable', 'false');
+      fragment.appendChild(citationSpan);
+      
+      if (afterText) {
+        fragment.appendChild(document.createTextNode(afterText));
+      }
+      
+      parent.replaceChild(fragment, textNode);
+    }
+    
+    if (iterationCount >= maxIterations) {
+      console.warn('Reached maximum iterations while wrapping citations');
+    }
+  }
+
+  // Highlight all citations of a reference by toggling className
+  highlightCitations(refId) {
+    const editor = this.thesisEditor;
+    if (!editor) return;
+    
+    // First, ensure all citations are wrapped in spans
+    this.ensureCitationsWrapped();
+    
+    // Find all citation wrappers matching this refId
+    const citationSelector = `span.citation-wrapper[data-citation-ref="${refId}"]`;
+    const citations = editor.querySelectorAll(citationSelector);
+    
+    // Add highlight class to matching citations
+    citations.forEach(citation => {
+      citation.classList.add('citation-highlight');
+    });
+    
+    // Scroll to first highlighted citation if it exists
+    if (citations.length > 0) {
+      citations[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+  }
+
+  // Clear all citation highlights by removing className
+  clearCitationHighlight() {
+    if (!this.highlightedRefId) return;
+    
+    const editor = this.thesisEditor;
+    if (!editor) return;
+    
+    // Find all highlighted citations and remove the highlight class
+    // Keep the citation-wrapper span, just remove the highlight class
+    const highlights = editor.querySelectorAll('.citation-highlight');
+    
+    highlights.forEach(highlight => {
+      highlight.classList.remove('citation-highlight');
+    });
+    
+    // Citations remain wrapped in citation-wrapper spans, just not highlighted
+    // No DOM manipulation needed - just className changes
+    
+    this.highlightedRefId = null;
+    this.renderReferences(); // Update UI to remove highlighted state
+  }
+
+  // Generate citation ID in format: first-author-year-a,b,c,d
+  generateCitationId(authors, year) {
+    // Extract first author's last name
+    let firstAuthorLastName = 'Unknown';
+    
+    if (authors && authors.trim()) {
+      // Handle different formats: "Last, First", "First Last", "Last et al."
+      const authorsStr = authors.trim();
+      
+      // If comma-separated (Last, First format)
+      if (authorsStr.includes(',')) {
+        const firstAuthor = authorsStr.split(',')[0].trim();
+        firstAuthorLastName = firstAuthor.split(/\s+/)[0]; // Take first word (last name)
+      } else {
+        // Space-separated (First Last format) - take last word
+        const parts = authorsStr.split(/\s+/);
+        if (parts.length > 0) {
+          firstAuthorLastName = parts[parts.length - 1]; // Last word is usually last name
+        }
+      }
+      
+      // Clean up: remove special characters, lowercase
+      firstAuthorLastName = firstAuthorLastName.replace(/[^a-zA-Z0-9]/g, '');
+      if (firstAuthorLastName.length === 0) {
+        firstAuthorLastName = 'Unknown';
+      }
+    }
+    
+    // Get year (use current year if not provided)
+    const citationYear = year || new Date().getFullYear().toString();
+    
+    // Base citation ID
+    const baseId = `${firstAuthorLastName}-${citationYear}`.toLowerCase();
+    
+    // Check for duplicates and add suffix if needed
+    let citationId = baseId;
+    let suffix = '';
+    let suffixIndex = 0;
+    
+    // Find all existing references with same base ID
+    // Check both direct ID match and citationId property
+    const existingWithSameBase = this.references.filter(r => {
+      const rId = this.extractCitationIdFromRefId(r.id);
+      // Also check if the reference has a citationId property that matches
+      const rCitationId = r.citationId ? r.citationId.toLowerCase() : null;
+      
+      return (rId && rId.startsWith(baseId)) || (rCitationId && rCitationId.startsWith(baseId));
+    });
+    
+    if (existingWithSameBase.length > 0) {
+      // Get existing suffixes from all matching references
+      const existingSuffixes = new Set();
+      existingWithSameBase.forEach(r => {
+        const rId = this.extractCitationIdFromRefId(r.id);
+        const rCitationId = r.citationId ? r.citationId.toLowerCase() : null;
+        const checkId = rId || rCitationId;
+        
+        if (checkId && checkId.startsWith(baseId)) {
+          const remaining = checkId.substring(baseId.length);
+          // Extract letter suffix (e.g., "-a", "-b") or empty string for base
+          if (remaining === '') {
+            existingSuffixes.add(''); // Base ID is already used
+          } else {
+            const match = remaining.match(/^-([a-z])$/);
+            if (match) {
+              existingSuffixes.add(match[1]);
+            }
+          }
+        }
+      });
+      
+      // Find next available suffix (a, b, c, d, ...)
+      const letters = 'abcdefghijklmnopqrstuvwxyz';
+      if (!existingSuffixes.has('')) {
+        // Base ID is available
+        citationId = baseId;
+      } else {
+        // Need to find next letter suffix
+        for (let i = 0; i < letters.length; i++) {
+          if (!existingSuffixes.has(letters[i])) {
+            suffix = `-${letters[i]}`;
+            citationId = baseId + suffix;
+            break;
+          }
+        }
+      }
+    }
+    
+    return citationId;
+  }
+  
+  // Extract citation ID from reference ID (handles both formats: "ref1" or "smith-2024-a")
+  extractCitationIdFromRefId(refId) {
+    if (!refId) return null;
+    // If it's in citation format (contains dash and year-like pattern), return as is
+    // Pattern: lowercase letters, dash, 4 digits, optional dash and letter suffix
+    if (/^[a-z]+-\d{4}(-[a-z])?$/i.test(refId)) {
+      return refId.toLowerCase();
+    }
+    // Otherwise, it's an old format ref (like "ref1"), check if it has citationId property
+    const ref = this.references.find(r => r.id === refId);
+    if (ref && ref.citationId) {
+      return ref.citationId.toLowerCase();
+    }
+    // If no citationId, it's an old reference - return null so we don't match it
+    return null;
+  }
+
+  // Create a reference from paper data (for automatic reference creation from LLM agent)
+  createReferenceFromPaper(paperData) {
+    console.log('createReferenceFromPaper called with:', paperData);
+    
+    if (!paperData || !paperData.title) {
+      console.error('Invalid paperData:', paperData);
+      return null;
+    }
+    
+    // Check if reference already exists by title (case-insensitive)
+    const existingRef = this.references.find(r => 
+      r.title && paperData.title && r.title.toLowerCase().trim() === paperData.title.toLowerCase().trim()
+    );
+    
+    if (existingRef) {
+      console.log(`Reference already exists: ${existingRef.title} (${existingRef.id})`);
+      return existingRef.id;
+    }
+    
+    // Generate citation ID using first-author-year format
+    const citationId = this.generateCitationId(paperData.authors, paperData.year);
+    console.log(`Generated citation ID: ${citationId} for "${paperData.title}"`);
+    
+    // Create new reference with citation ID
+    const newRef = {
+      id: citationId, // Use citation ID as the reference ID
+      citationId: citationId, // Store separately as well for backwards compatibility
+      title: paperData.title || paperData.originalTitle || 'Untitled',
+      authors: paperData.authors || paperData.originalAuthors || '',
+      year: paperData.year || paperData.originalYear || '',
+      venue: paperData.venue || paperData.originalVenue || '',
+      presentation: paperData.presentation || paperData.originalPresentation || '',
+      url: paperData.url || paperData.originalUrl || '',
+      notes: paperData.notes || paperData.originalNotes || ''
+    };
+    
+    this.references.push(newRef);
+    this.renderReferences();
+    this.saveToStorage();
+    
+    console.log(`✓ Created reference: ${newRef.id} (${citationId}) - ${newRef.title}`);
+    console.log(`Total references now: ${this.references.length}`);
+    
+    // Force UI update by triggering a custom event
+    window.dispatchEvent(new CustomEvent('references-updated', { detail: { count: this.references.length } }));
+    
+    return newRef.id;
   }
 
   escapeHtml(text) {
@@ -973,7 +1321,11 @@ class ThesisEditor {
       bibliography += `${index + 1}. `;
       if (ref.authors) bibliography += `${ref.authors}. `;
       if (ref.title) bibliography += `"${ref.title}". `;
-      if (ref.venue) bibliography += `${ref.venue}. `;
+      if (ref.venue) {
+        bibliography += `${ref.venue}`;
+        if (ref.presentation) bibliography += ` (${ref.presentation})`;
+        bibliography += '. ';
+      }
       if (ref.year) bibliography += `(${ref.year}). `;
       if (ref.url) bibliography += `URL: ${ref.url}`;
       bibliography += '\n\n';
@@ -1003,7 +1355,11 @@ class ThesisEditor {
       bibliography += '<li>';
       if (ref.authors) bibliography += `${this.escapeHtml(ref.authors)}. `;
       if (ref.title) bibliography += `"${this.escapeHtml(ref.title)}". `;
-      if (ref.venue) bibliography += `${this.escapeHtml(ref.venue)}. `;
+      if (ref.venue) {
+        bibliography += `${this.escapeHtml(ref.venue)}`;
+        if (ref.presentation) bibliography += ` (${this.escapeHtml(ref.presentation)})`;
+        bibliography += '. ';
+      }
       if (ref.year) bibliography += `(${ref.year}). `;
       if (ref.url) bibliography += `<a href="${this.escapeHtml(ref.url)}">${this.escapeHtml(ref.url)}</a>`;
       bibliography += '</li>';
@@ -2193,6 +2549,15 @@ document.addEventListener('DOMContentLoaded', () => {
         plainText: editor.textContent || editor.innerText
       };
     }
+    return null;
+  };
+  
+  // Expose createReferenceFromPaper globally for agent.js to access
+  window.createReferenceFromPaper = (paperData) => {
+    if (thesisApp && typeof thesisApp.createReferenceFromPaper === 'function') {
+      return thesisApp.createReferenceFromPaper(paperData);
+    }
+    console.warn('thesisApp.createReferenceFromPaper not available');
     return null;
   };
   

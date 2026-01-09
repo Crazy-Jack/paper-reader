@@ -618,6 +618,128 @@ app.whenReady().then(() => {
     throw new Error('Failed to parse JSON response with all strategies');
   }
 
+  // Helper function to format papers using LLM for structured citation format
+  async function formatPapersForCitation(genAI, papers) {
+    // Define schema for citation format
+    const citationSchema = {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: {
+            type: 'string',
+            description: 'Full title of the paper'
+          },
+          authors: {
+            type: 'string',
+            description: 'Comma-separated list of authors (Last, First Middle format)'
+          },
+          year: {
+            type: 'string',
+            description: 'Publication year (YYYY format)'
+          },
+          venue: {
+            type: 'string',
+            description: 'Conference or journal name (e.g., "NeurIPS", "ICLR", "Journal of Machine Learning")'
+          },
+          presentation: {
+            type: 'string',
+            description: 'Presentation type at the conference (e.g., "Oral", "Spotlight", "Poster", or empty if not applicable)'
+          },
+          url: {
+            type: 'string',
+            description: 'URL to the paper'
+          },
+          notes: {
+            type: 'string',
+            description: 'Abstract or additional notes about the paper'
+          },
+          paperIndex: {
+            type: 'number',
+            description: 'Original paper index for mapping back to citations'
+          }
+        },
+        required: ['title', 'authors', 'year']
+      }
+    };
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: citationSchema
+      }
+    });
+
+    // Create prompt for formatting papers
+    const papersPrompt = papers.map((p, idx) => {
+      return `Paper ${idx + 1}:
+Title: ${p.title || 'N/A'}
+Authors: ${p.authors || 'N/A'}
+Year: ${p.year || 'N/A'}
+Venue: ${p.venue || 'N/A'}
+Presentation Type: ${p.presentation || 'N/A'}
+URL: ${p.url || 'N/A'}
+Abstract/Notes: ${(p.notes || '').substring(0, 500)}`;
+    }).join('\n\n');
+
+    const prompt = `Format the following papers into structured citation references. For each paper:
+1. Extract and clean the title
+2. Format authors as "Last, First Middle" (comma-separated, use "et al." if more than 10 authors)
+3. Extract the publication year (use current year if not available: ${new Date().getFullYear()})
+4. Identify the venue (conference or journal name) - keep this as the venue name only (e.g., "NeurIPS", "ICLR", "Journal of Machine Learning")
+5. Include the presentation type as a SEPARATE field if available (e.g., "Oral", "Spotlight", "Poster" - only for conference papers, leave empty string "" for journal papers or if not applicable)
+6. Include the URL if available
+7. Include abstract/notes (truncate to 500 characters if longer)
+
+IMPORTANT: For the presentation type:
+- Return it as a SEPARATE field, not merged with venue
+- Include it only if the paper was presented at a conference with a specific presentation type (Oral, Spotlight, Poster)
+- Leave it as an empty string "" if it's a journal paper, or if presentation type is "N/A" or not applicable
+- Do NOT include presentation type in the venue field - keep venue and presentation as separate fields
+
+Papers to format:
+${papersPrompt}
+
+Return a JSON array with formatted citation information for each paper in the same order.`;
+
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Parse JSON response
+      let formattedPapers = [];
+      try {
+        formattedPapers = JSON.parse(text);
+        
+        // Ensure paperIndex is preserved
+        formattedPapers = formattedPapers.map((formatted, idx) => ({
+          ...formatted,
+          paperIndex: papers[idx].paperIndex,
+          // Preserve original data as fallback
+          originalTitle: papers[idx].title,
+          originalAuthors: papers[idx].authors,
+          originalYear: papers[idx].year,
+          originalVenue: papers[idx].venue,
+          originalPresentation: papers[idx].presentation || '',
+          originalUrl: papers[idx].url,
+          originalNotes: papers[idx].notes
+        }));
+      } catch (parseError) {
+        console.error('Error parsing LLM citation response:', parseError);
+        console.error('Raw response:', text);
+        // Fallback to original papers
+        return papers;
+      }
+
+      return formattedPapers;
+    } catch (error) {
+      console.error('Error formatting papers with LLM:', error);
+      throw error;
+    }
+  }
+
   // IPC handler for proposing thesis edits
   ipcMain.handle('propose-thesis-edit', async (event, { apiKey, userIntention, thesisContent, loadedContexts }) => {
     try {
@@ -718,6 +840,7 @@ ${thesisContent}
           fullPrompt += `Content: ${contextText}\n\n`;
         });
         fullPrompt += `\n`;
+        fullPrompt += `IMPORTANT: When referencing these loaded papers in your edits, use the format "Paper1", "Paper2", etc. (where the number corresponds to the order listed above). The system will automatically convert these to proper citations.\n\n`;
       }
       
       fullPrompt += `Based on the user's request and the current thesis content, propose specific edits. 
@@ -795,8 +918,93 @@ Return a JSON object following the schema with type="edit", a clear description,
         
         proposal.changes = validatedChanges;
         
+        // Parse paper citations (Paper1, Paper2, etc.) and extract paper information
+        const papersToAdd = new Map(); // Map of paper index -> paper info
+        // More flexible pattern: matches "Paper1", "Paper 1", "(Paper1)", "[Paper1]", etc.
+        const citationPattern = /(?:\(|\[)?Paper\s*(\d+)(?:\)|\])?/gi;
+        
+        // Helper function to extract papers from text
+        const extractPapersFromText = (text) => {
+          if (!text) return;
+          let match;
+          while ((match = citationPattern.exec(text)) !== null) {
+            const paperIndex = parseInt(match[1]) - 1; // Convert to 0-based index
+            if (loadedContexts && paperIndex >= 0 && paperIndex < loadedContexts.length) {
+              const ctx = loadedContexts[paperIndex];
+              if (ctx.paper && !papersToAdd.has(paperIndex)) {
+                // Extract paper information
+                const paper = ctx.paper;
+                papersToAdd.set(paperIndex, {
+                  title: paper.title || ctx.title || 'Untitled',
+                  authors: Array.isArray(paper.authors) ? paper.authors.join(', ') : (paper.authors || ''),
+                  year: paper.year || '',
+                  venue: paper.venue || '',
+                  presentation: paper.presentation || '', // Oral, Spotlight, Poster, etc.
+                  url: paper.forum ? `https://openreview.net/forum?id=${paper.forum}` : (paper.url || ''),
+                  notes: paper.abstract ? (typeof paper.abstract === 'string' ? paper.abstract : (paper.abstract.value || '')) : '',
+                  paperIndex: paperIndex + 1 // Keep 1-based for display
+                });
+              }
+            }
+          }
+          // Reset regex lastIndex after each text processing
+          citationPattern.lastIndex = 0;
+        };
+        
+        // Find all paper citations in the proposal (check all relevant fields)
+        validatedChanges.forEach(change => {
+          extractPapersFromText(change.newText);
+          extractPapersFromText(change.searchText);
+          extractPapersFromText(change.surroundingText);
+        });
+        
+        // Also check description and reasoning fields
+        if (proposal.description) {
+          extractPapersFromText(proposal.description);
+        }
+        if (proposal.reasoning) {
+          extractPapersFromText(proposal.reasoning);
+        }
+        
+        // Convert map to array - we'll format these with LLM next
+        const papersToFormat = Array.from(papersToAdd.values());
+        
         console.log('Successfully parsed and validated proposal:', JSON.stringify(proposal, null, 2));
-        return { success: true, proposal };
+        
+        // Format papers using LLM to get structured citation format
+        let referencesToCreate = [];
+        if (papersToFormat.length > 0 && apiKey) {
+          console.log(`Formatting ${papersToFormat.length} papers with LLM for citation structure...`);
+          try {
+            referencesToCreate = await formatPapersForCitation(genAI, papersToFormat);
+            console.log(`Successfully formatted ${referencesToCreate.length} papers for citation`);
+          } catch (error) {
+            console.error('Error formatting papers with LLM, using direct extraction:', error);
+            // Fallback to direct extraction if LLM fails
+            referencesToCreate = papersToFormat.map(p => ({
+              title: p.title,
+              authors: p.authors,
+              year: p.year,
+              venue: p.venue,
+              presentation: p.presentation || '',
+              url: p.url,
+              notes: p.notes,
+              paperIndex: p.paperIndex
+            }));
+          }
+        } else {
+          referencesToCreate = papersToFormat;
+        }
+        
+        if (referencesToCreate.length > 0) {
+          console.log(`Found ${referencesToCreate.length} papers to add to reference bank:`, referencesToCreate.map(r => r.title));
+        }
+        
+        return { 
+          success: true, 
+          proposal,
+          referencesToCreate: referencesToCreate // Papers that need to be added to reference bank
+        };
       } catch (parseError) {
         console.error('Error parsing edit proposal:', parseError);
         console.error('Raw response:', text);

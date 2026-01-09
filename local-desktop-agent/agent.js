@@ -881,10 +881,79 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       if (result.error) {
         this.updateMessage(thinkingId, `Error generating edit proposal: ${result.error}${result.rawResponse ? '\n\nRaw response:\n' + result.rawResponse.substring(0, 500) : ''}`);
       } else if (result.success && result.proposal) {
+        // Process references if any papers need to be added
+        let proposal = result.proposal;
+        
+        if (result.referencesToCreate && result.referencesToCreate.length > 0) {
+          console.log(`Processing ${result.referencesToCreate.length} papers to add to reference bank`);
+          const paperToRefIdMap = new Map(); // Map paper index -> refId
+          
+          // Wait a bit to ensure thesisApp is fully initialized
+          let retries = 0;
+          while (!window.createReferenceFromPaper && retries < 5) {
+            console.warn(`window.createReferenceFromPaper not available, waiting... (attempt ${retries + 1}/5)`);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            retries++;
+          }
+          
+          if (!window.createReferenceFromPaper) {
+            console.error('window.createReferenceFromPaper still not available after waiting');
+            this.updateMessage(thinkingId, '✓ Edit proposal generated! ⚠️ Warning: Could not create references automatically. Please check the browser console for details.');
+          }
+          
+          // Create references for each paper
+          for (const paperData of result.referencesToCreate) {
+            try {
+              if (window.createReferenceFromPaper && typeof window.createReferenceFromPaper === 'function') {
+                console.log(`Creating reference for Paper ${paperData.paperIndex}: ${paperData.title}`);
+                const refId = window.createReferenceFromPaper(paperData);
+                if (refId) {
+                  paperToRefIdMap.set(paperData.paperIndex, refId);
+                  console.log(`✓ Created reference ${refId} for Paper ${paperData.paperIndex}: ${paperData.title}`);
+                } else {
+                  console.warn(`Failed to create reference for Paper ${paperData.paperIndex}: ${paperData.title}`);
+                }
+              } else {
+                console.error('window.createReferenceFromPaper is not available or not a function');
+              }
+            } catch (error) {
+              console.error(`Error creating reference for Paper ${paperData.paperIndex}:`, error);
+            }
+          }
+          
+          // Replace Paper1, Paper2 citations with [@ref1], [@ref2] format in the proposal
+          if (paperToRefIdMap.size > 0) {
+            console.log(`Replacing citations using map:`, Array.from(paperToRefIdMap.entries()));
+            proposal = this.replacePaperCitations(proposal, paperToRefIdMap);
+            console.log('Proposal after citation replacement:', JSON.stringify(proposal, null, 2));
+            
+            // Show message about references created with details
+            const refCount = paperToRefIdMap.size;
+            const refDetails = result.referencesToCreate
+              .filter(p => paperToRefIdMap.has(p.paperIndex))
+              .map(p => `- ${p.title}`)
+              .join('\n');
+            
+            this.updateMessage(thinkingId, `✓ Edit proposal generated!\n\n**Automatically added ${refCount} ${refCount === 1 ? 'reference' : 'references'} to your reference bank:**\n${refDetails}\n\n*Check the References section in the Thesis Editor tab to see them. Citations in the proposal have been updated to use proper [@refId] format.*\n\nReview the proposal in the modal below.`);
+            
+            // Force a small delay to ensure UI updates
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Try to refresh reference display if we can access it
+            if (window.thesisApp && typeof window.thesisApp.renderReferences === 'function') {
+              window.thesisApp.renderReferences();
+            }
+          } else {
+            console.warn('No references were created successfully');
+            this.updateMessage(thinkingId, '✓ Edit proposal generated! Review it in the modal below.');
+          }
+        } else {
+          this.updateMessage(thinkingId, '✓ Edit proposal generated! Review it in the modal below.');
+        }
+        
         // Store proposal and display it
-        this.currentProposal = result.proposal;
-        this.displayEditProposal(result.proposal);
-        this.updateMessage(thinkingId, '✓ Edit proposal generated! Review it in the modal below.');
+        this.currentProposal = proposal;
+        this.displayEditProposal(proposal);
       } else {
         this.updateMessage(thinkingId, 'Failed to generate edit proposal. Please try again.');
       }
@@ -892,6 +961,94 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       console.error('Error in edit mode:', error);
       this.updateMessage(thinkingId, `Error: ${error.message}`);
     }
+  }
+
+  // Replace Paper1, Paper2 citations with [@ref1], [@ref2] format
+  replacePaperCitations(proposal, paperToRefIdMap) {
+    // More flexible pattern: matches "Paper1", "Paper 1", "Paper  1", "(Paper1)", "[Paper1]", etc.
+    const citationPattern = /(?:\(|\[)?Paper\s*(\d+)(?:\)|\])?/gi;
+    
+    // Create a deep copy of the proposal to avoid mutating the original
+    const updatedProposal = JSON.parse(JSON.stringify(proposal));
+    
+    // Process each change in the proposal
+    if (updatedProposal.changes && Array.isArray(updatedProposal.changes)) {
+      updatedProposal.changes.forEach(change => {
+        if (change.newText) {
+          console.log(`Before replacement - newText:`, change.newText);
+          
+          // Replace all Paper N citations with [@refId] format
+          change.newText = change.newText.replace(citationPattern, (match, paperNumStr) => {
+            const paperIndex = parseInt(paperNumStr);
+            const refId = paperToRefIdMap.get(paperIndex);
+            console.log(`Found citation: "${match}", paperIndex: ${paperIndex}, refId: ${refId}`);
+            if (refId) {
+              return `[@${refId}]`;
+            }
+            // If no reference ID found, keep original citation
+            console.warn(`No refId found for Paper ${paperIndex}, keeping original citation`);
+            return match;
+          });
+          
+          console.log(`After replacement - newText:`, change.newText);
+          
+          // Reset regex lastIndex after each replacement
+          citationPattern.lastIndex = 0;
+        }
+        
+        // Also check searchText and surroundingText for citations (though less common)
+        if (change.searchText) {
+          change.searchText = change.searchText.replace(citationPattern, (match, paperNumStr) => {
+            const paperIndex = parseInt(paperNumStr);
+            const refId = paperToRefIdMap.get(paperIndex);
+            if (refId) {
+              return `[@${refId}]`;
+            }
+            return match;
+          });
+          citationPattern.lastIndex = 0;
+        }
+        
+        if (change.surroundingText) {
+          change.surroundingText = change.surroundingText.replace(citationPattern, (match, paperNumStr) => {
+            const paperIndex = parseInt(paperNumStr);
+            const refId = paperToRefIdMap.get(paperIndex);
+            if (refId) {
+              return `[@${refId}]`;
+            }
+            return match;
+          });
+          citationPattern.lastIndex = 0;
+        }
+      });
+    }
+    
+    // Also check description and reasoning fields
+    if (updatedProposal.description) {
+      updatedProposal.description = updatedProposal.description.replace(citationPattern, (match, paperNumStr) => {
+        const paperIndex = parseInt(paperNumStr);
+        const refId = paperToRefIdMap.get(paperIndex);
+        if (refId) {
+          return `[@${refId}]`;
+        }
+        return match;
+      });
+      citationPattern.lastIndex = 0;
+    }
+    
+    if (updatedProposal.reasoning) {
+      updatedProposal.reasoning = updatedProposal.reasoning.replace(citationPattern, (match, paperNumStr) => {
+        const paperIndex = parseInt(paperNumStr);
+        const refId = paperToRefIdMap.get(paperIndex);
+        if (refId) {
+          return `[@${refId}]`;
+        }
+        return match;
+      });
+      citationPattern.lastIndex = 0;
+    }
+    
+    return updatedProposal;
   }
 
   displayEditProposal(proposal) {

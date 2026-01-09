@@ -622,6 +622,48 @@ body {
   background-color: #d5e8f0;
 }
 
+/* Citation wrapper - normal state (invisible, just for structure) */
+.citation-wrapper {
+  /* No special styling - citations look normal when not highlighted */
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+}
+
+/* Highlight for citations in thesis editor when reference is clicked */
+.citation-wrapper.citation-highlight {
+  background-color: #ff6b6b !important;
+  color: #ffffff !important;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.3);
+  animation: citation-pulse 1.5s ease-in-out;
+  display: inline-block;
+}
+
+@keyframes citation-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.5);
+  }
+}
+
+/* Highlighted reference item in references list */
+.reference-item.highlighted {
+  background-color: #fff5f5;
+  border-left: 4px solid #ff6b6b;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.2);
+}
+
+.reference-item.highlighted .reference-id {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
 .empty-state {
   text-align: center;
   padding: 3rem 1rem;
