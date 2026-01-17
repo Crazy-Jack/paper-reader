@@ -8,10 +8,11 @@ class ResearchAgent {
     this.loadedContexts = {}; // Store loaded PDF contexts by forum ID
     this.geminiApiKey = null; // Store Gemini API key
     this.useGemini = false; // Flag to enable/disable Gemini
-    this.mode = 'ask'; // 'ask' or 'edit' mode
+    this.mode = 'ask'; // 'ask', 'edit', or 'search' mode
     
     this.init();
     this.loadApiKey();
+    this.loadDeepResearchKeys();
   }
 
   init() {
@@ -40,7 +41,17 @@ class ResearchAgent {
     this.geminiApiKeyInput = document.getElementById('gemini-api-key');
     this.saveApiKeyBtn = document.getElementById('save-api-key-btn');
     this.apiKeySavedIndicator = document.getElementById('api-key-saved-indicator');
+    this.firecrawlApiKeyInput = document.getElementById('firecrawl-api-key');
+    this.openaiApiKeyInput = document.getElementById('openai-api-key');
+    this.fireworksApiKeyInput = document.getElementById('fireworks-api-key');
+    this.openaiEndpointInput = document.getElementById('openai-endpoint');
+    this.customModelInput = document.getElementById('custom-model');
+    this.saveDeepResearchKeysBtn = document.getElementById('save-deep-research-keys-btn');
+    this.firecrawlKeySavedIndicator = document.getElementById('firecrawl-key-saved-indicator');
+    this.openaiKeySavedIndicator = document.getElementById('openai-key-saved-indicator');
+    this.fireworksKeySavedIndicator = document.getElementById('fireworks-key-saved-indicator');
     this.modeToggleBtn = document.getElementById('mode-toggle-btn');
+    this.modeDropdownMenu = document.getElementById('mode-dropdown-menu');
     this.editProposalModal = document.getElementById('edit-proposal-modal');
     this.closeEditProposalModal = document.getElementById('close-edit-proposal-modal');
     this.approveEditBtn = document.getElementById('approve-edit-btn');
@@ -65,18 +76,56 @@ class ResearchAgent {
     this.toggleFiltersBtn.addEventListener('click', () => this.toggleFiltersPanel());
     this.toggleSettingsBtn.addEventListener('click', () => this.toggleSettingsPanel());
     this.saveApiKeyBtn.addEventListener('click', () => this.saveApiKey());
+    if (this.saveDeepResearchKeysBtn) {
+      this.saveDeepResearchKeysBtn.addEventListener('click', () => this.saveDeepResearchKeys());
+    }
     this.searchInput.addEventListener('input', () => this.filterPapers());
     this.presentationFilter.addEventListener('change', () => this.filterPapers());
     this.findRelevantPapersBtn = document.getElementById('find-relevant-papers-btn');
     this.findRelevantPapersBtn.addEventListener('click', () => this.findRelevantPapersFromThesis());
+    this.deepResearchBtn = document.getElementById('deep-research-btn');
+    if (this.deepResearchBtn) {
+      this.deepResearchBtn.addEventListener('click', () => this.startDeepResearchFromButton());
+    }
     this.sendBtn.addEventListener('click', () => this.sendMessage());
     this.clearBtn.addEventListener('click', () => this.clearChat());
     
-    // Mode toggle button
+    // Mode toggle dropdown
     if (this.modeToggleBtn) {
-      this.modeToggleBtn.addEventListener('click', () => this.toggleMode());
+      this.modeToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleDropdown();
+      });
       this.updateModeUI();
     }
+
+    // Handle dropdown menu items
+    if (this.modeDropdownMenu) {
+      this.modeDropdownMenu.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const item = e.target.closest('.dropdown-item');
+        if (item) {
+          const mode = item.getAttribute('data-mode');
+          
+          if (mode) {
+            // Set mode (Ask, Edit, or Search)
+            this.mode = mode;
+            this.updateModeUI();
+            this.closeDropdown();
+          }
+        }
+      });
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (this.modeDropdownMenu && this.modeToggleBtn) {
+        if (!this.modeToggleBtn.contains(e.target) && !this.modeDropdownMenu.contains(e.target)) {
+          this.closeDropdown();
+        }
+      }
+    });
     
     // Edit proposal modal handlers
     if (this.closeEditProposalModal) {
@@ -741,14 +790,32 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     }
   }
 
-  toggleMode() {
-    this.mode = this.mode === 'ask' ? 'edit' : 'ask';
-    this.updateModeUI();
+  toggleDropdown() {
+    if (this.modeDropdownMenu) {
+      const isVisible = this.modeDropdownMenu.style.display !== 'none';
+      this.modeDropdownMenu.style.display = isVisible ? 'none' : 'block';
+    }
+  }
+
+  closeDropdown() {
+    if (this.modeDropdownMenu) {
+      this.modeDropdownMenu.style.display = 'none';
+    }
   }
 
   updateModeUI() {
     if (this.modeToggleBtn) {
-      const label = this.mode === 'ask' ? 'Ask Mode' : 'Edit Mode';
+      let label;
+      if (this.mode === 'ask') {
+        label = 'Ask Mode';
+      } else if (this.mode === 'edit') {
+        label = 'Edit Mode';
+      } else if (this.mode === 'search') {
+        label = 'Search Mode';
+      } else {
+        label = 'Ask Mode';
+      }
+      
       const modeLabel = this.modeToggleBtn.querySelector('.mode-label');
       if (modeLabel) {
         modeLabel.textContent = label;
@@ -756,18 +823,36 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
       this.modeToggleBtn.setAttribute('data-mode', this.mode);
       
       // Update button appearance
+      this.modeToggleBtn.classList.remove('edit-mode', 'search-mode');
       if (this.mode === 'edit') {
         this.modeToggleBtn.classList.add('edit-mode');
-      } else {
-        this.modeToggleBtn.classList.remove('edit-mode');
+      } else if (this.mode === 'search') {
+        this.modeToggleBtn.classList.add('search-mode');
       }
       
       // Update chat input placeholder
       if (this.chatInput) {
-        this.chatInput.placeholder = this.mode === 'ask' 
-          ? 'Ask a question about the papers...'
-          : 'Describe the edit you want to make to your thesis...';
+        if (this.mode === 'ask') {
+          this.chatInput.placeholder = 'Ask a question about the papers...';
+        } else if (this.mode === 'edit') {
+          this.chatInput.placeholder = 'Describe the edit you want to make to your thesis...';
+        } else if (this.mode === 'search') {
+          this.chatInput.placeholder = 'Enter search query to find relevant papers...';
+        }
       }
+    }
+
+    // Update dropdown menu active states
+    if (this.modeDropdownMenu) {
+      const items = this.modeDropdownMenu.querySelectorAll('.dropdown-item[data-mode]');
+      items.forEach(item => {
+        const itemMode = item.getAttribute('data-mode');
+        if (itemMode === this.mode) {
+          item.classList.add('active');
+        } else {
+          item.classList.remove('active');
+        }
+      });
     }
   }
 
@@ -775,13 +860,33 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     const message = this.chatInput.value.trim();
     if (!message) return;
 
+    // Check for deep research commands
+    if (message.startsWith('/research') || message.startsWith('/research-report')) {
+      this.chatInput.value = '';
+      await this.handleDeepResearchCommand(message);
+      return;
+    }
+
+    // Check for web search command (works in any mode)
+    if (this.isWebSearchCommand(message)) {
+      this.chatInput.value = '';
+      this.addMessage('user', message);
+      const webQuery = this.extractWebSearchQuery(message);
+      await this.handleWebSearchAction(webQuery);
+      return;
+    }
+
     // Add user message
     this.addMessage('user', message);
     this.chatInput.value = '';
 
-    // Check mode - edit mode vs ask mode
+    // Check mode - edit mode, search mode, or ask mode
     if (this.mode === 'edit') {
       await this.handleEditMode(message);
+      return;
+    } else if (this.mode === 'search') {
+      // Handle search mode
+      await this.handleSearchAction(message);
       return;
     }
 
@@ -818,8 +923,15 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
             this.updateMessage(thinkingId, response);
           }, 500);
         } else {
-          // Display Gemini response naturally (no special formatting)
-          this.updateMessage(thinkingId, result.text);
+          // Check if Gemini response suggests a search is needed
+          // If so, trigger semantic search
+          if (this.shouldPerformSearch(result.text, message)) {
+            this.updateMessage(thinkingId, 'Performing semantic search to find relevant papers...');
+            await this.handleSearchAction(message);
+          } else {
+            // Display Gemini response naturally (no special formatting)
+            this.updateMessage(thinkingId, result.text);
+          }
         }
       } catch (error) {
         console.error('Error calling Gemini:', error);
@@ -1555,6 +1667,245 @@ ${forumId !== 'N/A' ? 'Use the ⬇️ button to download the PDF or 📄 button 
     }
   }
 
+  async loadDeepResearchKeys() {
+    try {
+      if (window.electronAPI && window.electronAPI.loadDeepResearchKeys) {
+        const result = await window.electronAPI.loadDeepResearchKeys();
+        if (result.keys) {
+          const keys = result.keys;
+          if (keys.firecrawlApiKey && this.firecrawlApiKeyInput) {
+            this.firecrawlApiKeyInput.placeholder = 'Firecrawl API key saved ✓ (enter new key to change)';
+            if (this.firecrawlKeySavedIndicator) {
+              this.firecrawlKeySavedIndicator.style.display = 'block';
+            }
+          }
+          if (keys.openaiApiKey && this.openaiApiKeyInput) {
+            this.openaiApiKeyInput.placeholder = 'OpenAI API key saved ✓ (enter new key to change)';
+            if (this.openaiKeySavedIndicator) {
+              this.openaiKeySavedIndicator.style.display = 'block';
+            }
+          }
+          if (keys.fireworksApiKey && this.fireworksApiKeyInput) {
+            this.fireworksApiKeyInput.placeholder = 'Fireworks API key saved ✓ (enter new key to change)';
+            if (this.fireworksKeySavedIndicator) {
+              this.fireworksKeySavedIndicator.style.display = 'block';
+            }
+          }
+          if (keys.openaiEndpoint && this.openaiEndpointInput) {
+            this.openaiEndpointInput.value = keys.openaiEndpoint;
+          }
+          if (keys.customModel && this.customModelInput) {
+            this.customModelInput.value = keys.customModel;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading deep research API keys:', error);
+    }
+  }
+
+  async saveDeepResearchKeys() {
+    const keys = {
+      firecrawlApiKey: this.firecrawlApiKeyInput ? this.firecrawlApiKeyInput.value.trim() : '',
+      openaiApiKey: this.openaiApiKeyInput ? this.openaiApiKeyInput.value.trim() : '',
+      fireworksApiKey: this.fireworksApiKeyInput ? this.fireworksApiKeyInput.value.trim() : '',
+      openaiEndpoint: this.openaiEndpointInput ? this.openaiEndpointInput.value.trim() : '',
+      customModel: this.customModelInput ? this.customModelInput.value.trim() : '',
+    };
+
+    // Firecrawl is required
+    if (!keys.firecrawlApiKey) {
+      alert('Firecrawl API key is required for Deep Research');
+      return;
+    }
+
+    // At least one LLM API key is required
+    if (!keys.openaiApiKey && !keys.fireworksApiKey) {
+      alert('At least one LLM API key (OpenAI or Fireworks) is required for Deep Research');
+      return;
+    }
+
+    try {
+      if (window.electronAPI && window.electronAPI.saveDeepResearchKeys) {
+        const result = await window.electronAPI.saveDeepResearchKeys(keys);
+        if (result.error) {
+          alert('Error saving API keys: ' + result.error);
+        } else {
+          // Clear inputs and show saved indicators
+          if (this.firecrawlApiKeyInput) {
+            this.firecrawlApiKeyInput.value = '';
+            this.firecrawlApiKeyInput.placeholder = 'Firecrawl API key saved ✓ (enter new key to change)';
+          }
+          if (this.openaiApiKeyInput) {
+            this.openaiApiKeyInput.value = '';
+            this.openaiApiKeyInput.placeholder = 'OpenAI API key saved ✓ (enter new key to change)';
+          }
+          if (this.fireworksApiKeyInput) {
+            this.fireworksApiKeyInput.value = '';
+            this.fireworksApiKeyInput.placeholder = 'Fireworks API key saved ✓ (enter new key to change)';
+          }
+          
+          if (this.firecrawlKeySavedIndicator) {
+            this.firecrawlKeySavedIndicator.style.display = 'block';
+          }
+          if (this.openaiKeySavedIndicator && keys.openaiApiKey) {
+            this.openaiKeySavedIndicator.style.display = 'block';
+          }
+          if (this.fireworksKeySavedIndicator && keys.fireworksApiKey) {
+            this.fireworksKeySavedIndicator.style.display = 'block';
+          }
+          
+          console.log('Deep Research API keys saved successfully');
+          this.addMessage('agent', '✓ Deep Research API keys saved successfully! You can now use Deep Research features.');
+        }
+      }
+    } catch (error) {
+      console.error('Error saving deep research API keys:', error);
+      alert('Error saving API keys: ' + error.message);
+    }
+  }
+
+  async startDeepResearchFromButton() {
+    const message = this.chatInput.value.trim();
+    if (!message) {
+      alert('Please enter a research query first');
+      return;
+    }
+    this.chatInput.value = '';
+    await this.startDeepResearch(message, 4, 2, false);
+  }
+
+  async handleDeepResearchCommand(message) {
+    // Parse command: /research <query> [--breadth N] [--depth N]
+    // or: /research-report <query> [--breadth N] [--depth N]
+    const generateReport = message.startsWith('/research-report');
+    const command = generateReport ? '/research-report' : '/research';
+    
+    let query = message.slice(command.length).trim();
+    let breadth = 4;
+    let depth = 2;
+
+    // Parse optional parameters
+    const breadthMatch = query.match(/--breadth\s+(\d+)/);
+    if (breadthMatch) {
+      breadth = parseInt(breadthMatch[1], 10);
+      query = query.replace(/--breadth\s+\d+/g, '').trim();
+    }
+
+    const depthMatch = query.match(/--depth\s+(\d+)/);
+    if (depthMatch) {
+      depth = parseInt(depthMatch[1], 10);
+      query = query.replace(/--depth\s+\d+/g, '').trim();
+    }
+
+    if (!query) {
+      this.addMessage('agent', 'Please provide a research query. Example: /research What are the latest developments in transformer architectures?');
+      return;
+    }
+
+    await this.startDeepResearch(query, breadth, depth, generateReport);
+  }
+
+  async startDeepResearch(query, breadth, depth, generateReport) {
+    // Add user message
+    this.addMessage('user', generateReport ? `/research-report ${query}` : `/research ${query}`);
+
+    // Show initial message
+    const progressId = this.addMessage('agent', '🔍 Starting deep research...', true);
+
+    try {
+      // Set up progress listener
+      if (window.electronAPI && window.electronAPI.onDeepResearchProgress) {
+        window.electronAPI.onDeepResearchProgress((progress) => {
+          this.displayDeepResearchProgress(progressId, progress);
+        });
+      }
+
+      // Call deep research
+      if (!window.electronAPI || !window.electronAPI.deepResearch) {
+        throw new Error('Deep research API not available');
+      }
+
+      const result = await window.electronAPI.deepResearch({
+        query,
+        breadth,
+        depth,
+        generateReport,
+      });
+
+      if (result.error) {
+        let errorMsg = result.error;
+        // Provide helpful suggestions for common errors
+        if (errorMsg.includes('API key') || errorMsg.includes('Authentication')) {
+          errorMsg += '\n\n💡 Tip: Please configure your API keys in Settings → Deep Research API Keys';
+        } else if (errorMsg.includes('Rate limit')) {
+          errorMsg += '\n\n💡 Tip: Please wait a moment and try again, or check your API quota.';
+        } else if (errorMsg.includes('Network error') || errorMsg.includes('timeout')) {
+          errorMsg += '\n\n💡 Tip: Please check your internet connection and try again.';
+        }
+        this.updateMessage(progressId, `❌ Error: ${errorMsg}`);
+        return;
+      }
+
+      // Display results
+      this.displayDeepResearchResult(progressId, result, generateReport);
+    } catch (error) {
+      console.error('Error in deep research:', error);
+      let errorMsg = error.message || 'Unknown error occurred';
+      // Provide helpful suggestions for common errors
+      if (errorMsg.includes('API key') || errorMsg.includes('Authentication')) {
+        errorMsg += '\n\n💡 Tip: Please configure your API keys in Settings → Deep Research API Keys';
+      } else if (errorMsg.includes('Rate limit')) {
+        errorMsg += '\n\n💡 Tip: Please wait a moment and try again, or check your API quota.';
+      } else if (errorMsg.includes('Network error') || errorMsg.includes('timeout')) {
+        errorMsg += '\n\n💡 Tip: Please check your internet connection and try again.';
+      }
+      this.updateMessage(progressId, `❌ Error performing deep research: ${errorMsg}`);
+    }
+  }
+
+  displayDeepResearchProgress(messageId, progress) {
+    const { currentDepth, totalDepth, currentBreadth, totalBreadth, currentQuery, totalQueries, completedQueries } = progress;
+    
+    let progressText = '🔍 Researching...\n\n';
+    progressText += `Depth: ${totalDepth - currentDepth + 1}/${totalDepth}\n`;
+    progressText += `Breadth: ${currentBreadth}/${totalBreadth}\n`;
+    progressText += `Queries: ${completedQueries}/${totalQueries}\n`;
+    if (currentQuery) {
+      progressText += `\nCurrent query: ${currentQuery}`;
+    }
+
+    this.updateMessage(messageId, progressText);
+  }
+
+  displayDeepResearchResult(messageId, result, generateReport) {
+    let content = '';
+
+    if (generateReport && result.report) {
+      content = `## Research Report\n\n${result.report}`;
+    } else if (result.answer) {
+      content = `## Research Answer\n\n${result.answer}`;
+    }
+
+    if (result.learnings && result.learnings.length > 0) {
+      content += `\n\n## Key Learnings\n\n`;
+      result.learnings.forEach((learning, index) => {
+        content += `${index + 1}. ${learning}\n`;
+      });
+    }
+
+    if (result.visitedUrls && result.visitedUrls.length > 0) {
+      content += `\n\n## Sources (${result.visitedUrls.length})\n\n`;
+      content += '<details><summary>Click to view sources</summary>\n\n';
+      result.visitedUrls.forEach((url) => {
+        content += `- [${url}](${url})\n`;
+      });
+      content += '\n</details>';
+    }
+
+    this.updateMessage(messageId, content);
+  }
+
   toggleSettingsPanel() {
     this.settingsExpanded = !this.settingsExpanded;
     
@@ -2223,7 +2574,8 @@ I couldn't find papers that match your thesis content. Try:
     if (lowerQuestion.includes('trend') || lowerQuestion.includes('main topic') || lowerQuestion.includes('research direction')) {
       return this.analyzeTrends();
     } else if (lowerQuestion.includes('find') || lowerQuestion.includes('search') || lowerQuestion.includes('related to')) {
-      return this.searchRelatedPapers(question);
+      // For search requests, suggest using semantic search instead
+      return `I can help you search for papers. For better results, use semantic search by typing "/search [your query]" or ask me directly and I'll perform a semantic search.\n\n${this.searchRelatedPapers(question)}`;
     } else if (lowerQuestion.includes('compare') || lowerQuestion.includes('difference')) {
       return this.comparePapers(question);
     } else if (lowerQuestion.includes('idea') || lowerQuestion.includes('unexplored') || lowerQuestion.includes('gap')) {
@@ -2417,6 +2769,669 @@ ${paperList}
     `;
   }
 
+  /**
+   * Construct a search query from user input using LLM
+   * This creates an optimized search query for semantic search
+   */
+  isWebSearchCommand(message) {
+    return /^\s*(\/(websearch|gsearch|web|search-web)\b|web:\s*|google:\s*)/i.test(message);
+  }
+
+  extractWebSearchQuery(message) {
+    return message
+      .replace(/^\s*\/(websearch|gsearch|web|search-web)\s*/i, '')
+      .replace(/^\s*(web|google):\s*/i, '')
+      .trim();
+  }
+
+  async constructSearchQuery(userQuery) {
+    if (!this.geminiApiKey) {
+      // Fallback: use user query directly if no API key
+      return userQuery;
+    }
+
+    try {
+      const prompt = `Given the following user query, construct an optimal search query for finding relevant research papers. The search query should:
+1. Be concise and focused (1-2 sentences or key phrases)
+2. Include important technical terms and concepts
+3. Remove conversational elements or questions
+4. Focus on the core research topic or question
+
+User query: "${userQuery}"
+
+Return only the optimized search query text, nothing else.`;
+
+      const result = await window.electronAPI.callGemini({
+        apiKey: this.geminiApiKey,
+        prompt: prompt,
+        context: null
+      });
+
+      if (result.error) {
+        console.warn('Error constructing search query with LLM, using original query:', result.error);
+        return userQuery;
+      }
+
+      // Extract the search query from the response
+      const searchQuery = result.text.trim();
+      return searchQuery.length > 0 ? searchQuery : userQuery;
+    } catch (error) {
+      console.warn('Error constructing search query with LLM, using original query:', error);
+      return userQuery;
+    }
+  }
+
+  /**
+   * Handle search action - called when user requests a search
+   */
+  async handleSearchAction(message) {
+    if (this.isWebSearchCommand(message)) {
+      const webQuery = this.extractWebSearchQuery(message);
+      await this.handleWebSearchAction(webQuery);
+      return;
+    }
+
+    // Extract search query (remove /search prefix if present)
+    let searchQuery = message.replace(/^\/search\s*/i, '').replace(/^search:\s*/i, '').trim();
+    if (!searchQuery) {
+      this.addMessage('agent', 'Please provide a search query. Usage: /search [your query] or "search for [topic]"');
+      return;
+    }
+
+    // Show searching indicator
+    const searchingId = this.addMessage('agent', 'Performing semantic search...', true);
+
+    try {
+      this.updateMessage(searchingId, 'Step 1/2: Computing embedding for search query...');
+      
+      // Perform semantic search (use original query, don't construct optimized version)
+      const searchResult = await this.performSemanticSearch(searchQuery, {
+        maxResults: 20,
+        minSimilarity: 0.0,
+        constructQuery: false
+      });
+
+      this.updateMessage(searchingId, 'Step 2/2: Searching embedding database and formatting results...');
+      
+      // Format and display results
+      this.displaySearchResults(searchResult, searchingId);
+
+    } catch (error) {
+      console.error('Error in search action:', error);
+      this.updateMessage(searchingId, `Error performing search: ${error.message}\n\nPlease ensure:\n- Papers are loaded\n- Gemini API key is set\n- Embeddings database exists for the current dataset`);
+    }
+  }
+
+  /**
+   * Handle web search action using Gemini Google Search grounding
+   */
+  async handleWebSearchAction(query) {
+    const searchQuery = (query || '').trim();
+    if (!searchQuery) {
+      this.addMessage('agent', 'Please provide a web search query. Usage: /websearch [your query] or "web: [topic]"');
+      return;
+    }
+
+    if (!this.geminiApiKey) {
+      this.addMessage('agent', 'Please set your Gemini API key in Settings first. Web search requires an API key.');
+      return;
+    }
+
+    const searchingId = this.addMessage('agent', 'Searching the web with Gemini...', true);
+
+    try {
+      const result = await window.electronAPI.googleSearch({
+        apiKey: this.geminiApiKey,
+        query: searchQuery
+      });
+
+      if (result.error) {
+        this.updateMessage(searchingId, `Error performing web search: ${result.error}`);
+        return;
+      }
+
+      const groundedHtml = this.formatGroundedResponse(result.text, result.groundingMetadata);
+      this.updateMessageHtml(searchingId, groundedHtml);
+    } catch (error) {
+      console.error('Error in web search action:', error);
+      this.updateMessage(searchingId, `Error performing web search: ${error.message}`);
+    }
+  }
+
+  formatGroundedResponse(text, groundingMetadata) {
+    const safeText = text || '';
+    if (!groundingMetadata) {
+      return this.formatPlainHtml(safeText);
+    }
+
+    const supports = groundingMetadata.groundingSupports || [];
+    const chunks = groundingMetadata.groundingChunks || [];
+
+    const insertions = supports
+      .map((support) => {
+        const endIndex = support.segment?.endIndex;
+        if (endIndex === undefined || !support.groundingChunkIndices?.length) {
+          return null;
+        }
+
+        const citationLinks = support.groundingChunkIndices
+          .map((index) => {
+            const uri = chunks[index]?.web?.uri;
+            if (!uri) return null;
+            return `<a href="${uri}" target="_blank" rel="noopener noreferrer">[${index + 1}]</a>`;
+          })
+          .filter(Boolean);
+
+        if (citationLinks.length === 0) {
+          return null;
+        }
+
+        return {
+          index: endIndex,
+          html: ` ${citationLinks.join(' ')}`
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.index - b.index);
+
+    if (insertions.length === 0) {
+      return this.formatPlainHtml(safeText);
+    }
+
+    let html = '';
+    let lastIndex = 0;
+    insertions.forEach((insertion) => {
+      const segment = safeText.slice(lastIndex, insertion.index);
+      html += this.escapeHtml(segment);
+      html += insertion.html;
+      lastIndex = insertion.index;
+    });
+    html += this.escapeHtml(safeText.slice(lastIndex));
+
+    return this.formatPlainHtml(html, true);
+  }
+
+  formatPlainHtml(content, isHtml = false) {
+    const rawText = content || '';
+    const codeBlocks = [];
+    const textWithPlaceholders = rawText.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, language, code) => {
+      const token = `__CODE_BLOCK_${codeBlocks.length}__`;
+      const escapedCode = this.escapeHtml(code);
+      codeBlocks.push(`<pre><code>${escapedCode}</code></pre>`);
+      return token;
+    });
+
+    const text = isHtml ? textWithPlaceholders : this.escapeHtml(textWithPlaceholders);
+    const lines = text.split('\n');
+    let html = '';
+    let inList = false;
+    let listType = null;
+
+    const applyInlineMarkdown = (value) => {
+      let formatted = value;
+      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+      formatted = this.applyInlineMath(formatted);
+      return formatted;
+    };
+
+    const closeList = () => {
+      if (inList) {
+        html += listType === 'ol' ? '</ol>' : '</ul>';
+        inList = false;
+        listType = null;
+      }
+    };
+
+    lines.forEach((line) => {
+      const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        closeList();
+        const level = headingMatch[1].length;
+        html += `<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`;
+        return;
+      }
+
+      if (/^\s*([-*_])\1\1+\s*$/.test(line)) {
+        closeList();
+        html += '<hr>';
+        return;
+      }
+
+      const blockquoteMatch = line.match(/^>\s+(.+)$/);
+      if (blockquoteMatch) {
+        closeList();
+        html += `<blockquote>${applyInlineMarkdown(blockquoteMatch[1])}</blockquote>`;
+        return;
+      }
+
+      const orderedMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (orderedMatch) {
+        if (!inList || listType !== 'ol') {
+          closeList();
+          html += '<ol>';
+          inList = true;
+          listType = 'ol';
+        }
+        html += `<li>${applyInlineMarkdown(orderedMatch[1])}</li>`;
+        return;
+      }
+
+      const listMatch = line.match(/^\s*[-*]\s+(.*)$/);
+      if (listMatch) {
+        if (!inList || listType !== 'ul') {
+          closeList();
+          html += '<ul>';
+          inList = true;
+          listType = 'ul';
+        }
+        html += `<li>${applyInlineMarkdown(listMatch[1])}</li>`;
+        return;
+      }
+
+      closeList();
+
+      if (!line.trim()) {
+        html += '<br>';
+        return;
+      }
+
+      html += `<p>${applyInlineMarkdown(line)}</p>`;
+    });
+
+    closeList();
+
+    codeBlocks.forEach((block, index) => {
+      html = html.replace(`__CODE_BLOCK_${index}__`, block);
+    });
+
+    return html;
+  }
+
+  /**
+   * Check if a Gemini response suggests a search should be performed
+   */
+  shouldPerformSearch(geminiResponse, originalMessage) {
+    const lowerResponse = geminiResponse.toLowerCase();
+    const lowerMessage = originalMessage.toLowerCase();
+    
+    // Check if response mentions searching or finding papers
+    const searchKeywords = ['search', 'find papers', 'look for', 'find relevant', 'semantic search'];
+    const hasSearchKeywords = searchKeywords.some(keyword => 
+      lowerResponse.includes(keyword) || lowerMessage.includes(keyword)
+    );
+
+    // Also check if user message is clearly a search request
+    const isSearchIntent = lowerMessage.includes('find') || 
+                          lowerMessage.includes('search') ||
+                          lowerMessage.includes('papers about') ||
+                          lowerMessage.includes('papers on');
+
+    return hasSearchKeywords || isSearchIntent;
+  }
+
+  /**
+   * Display formatted search results
+   */
+  displaySearchResults(searchResult, messageId) {
+    const { query, originalQuery, results, totalResults, dataset } = searchResult;
+
+    if (results.length === 0) {
+      this.updateMessage(messageId, `
+**No Papers Found**
+
+I couldn't find papers matching your search query: "${originalQuery}"
+
+**Suggestions:**
+- Try different keywords or rephrase your query
+- Check if embeddings database exists for dataset: ${dataset}
+- Ensure papers are loaded for the current dataset
+- Try a broader or more specific search term
+      `);
+      return;
+    }
+
+    // Automatically add top results to context (abstracts only)
+    results.slice(0, 10).forEach((item) => {
+      const paper = item.paper;
+      const forumId = item.forumId;
+      
+      if (forumId && (!this.loadedContexts[forumId] || this.loadedContexts[forumId].type === 'abstract')) {
+        const abstract = this.cleanAbstract(paper.abstract || 'No abstract available');
+        const title = paper.title || 'Untitled';
+        
+        this.loadedContexts[forumId] = {
+          title: title,
+          text: `Title: ${title}\n\nAbstract:\n${abstract}`,
+          type: 'abstract',
+          loadedAt: new Date().toISOString(),
+          forumId: forumId,
+          paper: paper
+        };
+      }
+    });
+
+    // Update UI to show loaded contexts
+    this.updateLoadedContextsUI();
+
+    // Build formatted response
+    let response = `**Semantic Search Results**\n\n`;
+    response += `**Search query:** "${originalQuery}"\n`;
+    response += `**Found ${totalResults} relevant papers** (dataset: ${dataset})\n\n`;
+    response += `*Top results have been automatically added to context as abstracts.*\n\n`;
+
+    results.forEach((item, idx) => {
+      const paper = item.paper;
+      const forumId = item.forumId;
+      const title = paper.title || 'Untitled';
+      const abstract = this.cleanAbstract(paper.abstract || 'No abstract available');
+      const venue = paper.venue || 'Unknown venue';
+      const similarityPercent = (item.similarity * 100).toFixed(1);
+
+      response += `${idx + 1}. **${title}** (Similarity: ${similarityPercent}%)\n`;
+      response += `   ${venue}\n`;
+      if (abstract) {
+        response += `   **Abstract:** ${abstract}\n`;
+      }
+      
+      // Add button marker (without brackets - buttons will be inserted here)
+      if (forumId && !forumId.startsWith('index_')) {
+        response += `\n   SEARCH_BUTTON_MARKER_${idx}_${forumId.substring(0, 8)}\n\n`;
+      } else {
+        response += `\n`;
+      }
+    });
+
+    response += `\n*Use the buttons below each paper to download PDFs or load full paper content.*`;
+
+    this.updateMessage(messageId, response);
+
+    // Add action buttons after message is updated
+    setTimeout(() => {
+      this.addSearchResultButtons(results, messageId);
+    }, 100);
+  }
+
+  /**
+   * Add action buttons to search results
+   */
+  addSearchResultButtons(results, messageId) {
+    const messageDiv = document.getElementById(messageId);
+    if (!messageDiv) return;
+
+    const contentDiv = messageDiv.querySelector('.message-content');
+    if (!contentDiv) return;
+
+    results.forEach((item, idx) => {
+      const paper = item.paper;
+      const forumId = item.forumId;
+      
+      if (!forumId || forumId.startsWith('index_')) return;
+
+      const markerPattern = `SEARCH_BUTTON_MARKER_${idx}_${forumId.substring(0, 8)}`;
+      const walker = document.createTreeWalker(
+        contentDiv,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.textContent.includes(markerPattern)) {
+          const buttonContainer = document.createElement('div');
+          buttonContainer.className = 'paper-action-buttons-inline';
+          
+          // Download button
+          const downloadBtn = document.createElement('button');
+          downloadBtn.className = 'btn-inline btn-download-pdf';
+          downloadBtn.textContent = '⬇️ Download PDF';
+          downloadBtn.setAttribute('data-forum', forumId);
+          downloadBtn.title = 'Download PDF';
+          downloadBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Find paper index for download
+            let paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+            if (paperIndex === -1) {
+              paperIndex = this.papers.findIndex(p => p.forum === forumId);
+            }
+            if (paperIndex !== -1) {
+              await this.downloadPDF(forumId, paperIndex);
+            } else {
+              // Try to download without index
+              await this.downloadPDF(forumId);
+            }
+          });
+
+          // Load full paper button
+          const loadBtn = document.createElement('button');
+          loadBtn.className = 'btn-inline btn-load-full-paper';
+          loadBtn.textContent = '📄 Load Full Paper';
+          loadBtn.setAttribute('data-forum', forumId);
+          loadBtn.setAttribute('data-title', paper.title || 'Untitled');
+          loadBtn.title = 'Load full paper content';
+          
+          // Update button state handler
+          loadBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Update button state
+            loadBtn.disabled = true;
+            loadBtn.textContent = '📄 Loading...';
+            
+            // Find paper index
+            let paperIndex = this.filteredPapers.findIndex(p => p.forum === forumId);
+            if (paperIndex === -1) {
+              paperIndex = this.papers.findIndex(p => p.forum === forumId);
+            }
+            
+            try {
+              let result = null;
+              if (paperIndex !== -1) {
+                result = await this.loadPDFContext(forumId, paperIndex, true);
+              } else {
+                // Use context's paper data if available
+                const context = this.loadedContexts[forumId];
+                if (context && context.paper) {
+                  const tempIndex = this.filteredPapers.length;
+                  this.filteredPapers.push(context.paper);
+                  result = await this.loadPDFContext(forumId, tempIndex, true);
+                  if (!this.papers.find(p => p.forum === forumId)) {
+                    this.filteredPapers.pop();
+                  }
+                }
+              }
+              
+              // Update button state based on result
+              // Check if paper was successfully loaded by checking if context exists and is full
+              if (this.loadedContexts[forumId] && this.loadedContexts[forumId].type === 'full') {
+                loadBtn.textContent = '✓ Loaded';
+                loadBtn.style.backgroundColor = '#27ae60';
+                loadBtn.disabled = true; // Keep disabled since it's now loaded
+              } else if (result && result.success) {
+                loadBtn.textContent = '✓ Loaded';
+                loadBtn.style.backgroundColor = '#27ae60';
+                loadBtn.disabled = true;
+              } else {
+                loadBtn.textContent = '📄 Load Full Paper';
+                loadBtn.disabled = false;
+              }
+            } catch (error) {
+              console.error('Error loading paper:', error);
+              loadBtn.textContent = '📄 Load Full Paper';
+              loadBtn.disabled = false;
+            }
+          });
+
+          buttonContainer.appendChild(downloadBtn);
+          buttonContainer.appendChild(loadBtn);
+
+          // Replace marker with buttons
+          // Remove any brackets around the marker pattern
+          const parent = node.parentNode;
+          if (parent) {
+            let fullText = node.textContent;
+            const markerIndex = fullText.indexOf(markerPattern);
+            
+            if (markerIndex !== -1) {
+              // Find the start - look backwards for opening bracket or whitespace
+              let startIndex = markerIndex;
+              while (startIndex > 0 && (fullText[startIndex - 1] === '[' || /\s/.test(fullText[startIndex - 1]))) {
+                if (fullText[startIndex - 1] === '[') {
+                  startIndex--; // Include the opening bracket
+                  break;
+                }
+                startIndex--; // Include whitespace
+              }
+              
+              // Find the end - look forwards for closing bracket or whitespace
+              let endIndex = markerIndex + markerPattern.length;
+              while (endIndex < fullText.length && (fullText[endIndex] === ']' || /\s/.test(fullText[endIndex]))) {
+                endIndex++; // Include whitespace or closing bracket
+                if (fullText[endIndex - 1] === ']') {
+                  break; // Stop after closing bracket
+                }
+              }
+              
+              const textBefore = fullText.substring(0, startIndex);
+              const textAfter = fullText.substring(endIndex);
+              
+              parent.insertBefore(document.createTextNode(textBefore), node);
+              parent.insertBefore(buttonContainer, node);
+              
+              if (textAfter.trim()) {
+                parent.insertBefore(document.createTextNode(textAfter), node);
+              }
+              parent.removeChild(node);
+            }
+          }
+          break;
+        }
+      }
+    });
+  }
+
+  /**
+   * Perform semantic search using embeddings
+   * Constructs search query, embeds it, and searches the embedding database
+   */
+  async performSemanticSearch(userQuery, options = {}) {
+    const {
+      maxResults = 20,
+      minSimilarity = 0.0,
+      dataset = null,
+      constructQuery = true
+    } = options;
+
+    // Check prerequisites
+    if (this.papers.length === 0) {
+      throw new Error('Please load papers first by selecting a dataset and clicking "Load Papers".');
+    }
+
+    if (!this.geminiApiKey) {
+      throw new Error('Please set your Gemini API key in Settings first. Embedding-based search requires an API key.');
+    }
+
+    const targetDataset = dataset || this.currentDataset;
+    if (!targetDataset) {
+      throw new Error('No dataset loaded. Please load a dataset first.');
+    }
+
+    try {
+      // Step 1: Construct search query using LLM
+      const searchQuery = constructQuery 
+        ? await this.constructSearchQuery(userQuery)
+        : userQuery;
+
+      // Step 2: Get embedding for search query
+      let queryEmbedding;
+      if (window.electronAPI && window.electronAPI.getEmbeddings) {
+        const result = await window.electronAPI.getEmbeddings({
+          apiKey: this.geminiApiKey,
+          texts: [searchQuery]
+        });
+
+        if (result.error) {
+          throw new Error(`Failed to generate embedding: ${result.error}`);
+        }
+
+        if (!result.embeddings || result.embeddings.length === 0) {
+          throw new Error('Failed to generate embedding: No embeddings returned');
+        }
+
+        queryEmbedding = result.embeddings[0];
+      } else {
+        throw new Error('Embedding API not available');
+      }
+
+      // Step 3: Load embeddings from database
+      let databaseEmbeddings = [];
+      if (window.electronAPI && window.electronAPI.loadEmbeddings) {
+        const cached = await window.electronAPI.loadEmbeddings({
+          dataset: targetDataset,
+          type: 'papers'
+        });
+
+        if (cached.success && cached.embeddings) {
+          databaseEmbeddings = cached.embeddings;
+        } else {
+          throw new Error('No embeddings found in database. Please compute embeddings first.');
+        }
+      } else {
+        throw new Error('Embedding loading API not available');
+      }
+
+      if (databaseEmbeddings.length === 0) {
+        throw new Error('Embedding database is empty. Please compute embeddings first.');
+      }
+
+      // Step 4: Perform similarity search
+      const scoredResults = databaseEmbeddings
+        .map(item => {
+          let paper = null;
+          let forumId = item.forumId;
+
+          // Find the corresponding paper
+          if (forumId) {
+            paper = this.papers.find(p => p.forum === forumId);
+          } else if (item.paperIndex !== undefined && this.papers[item.paperIndex]) {
+            paper = this.papers[item.paperIndex];
+            forumId = paper.forum || `index_${item.paperIndex}`;
+          }
+
+          if (!paper || !item.embedding) {
+            return null;
+          }
+
+          const similarity = this.cosineSimilarity(queryEmbedding, item.embedding);
+
+          return {
+            paper: paper,
+            forumId: forumId,
+            similarity: similarity,
+            text: item.text || (paper.abstract ? this.cleanAbstract(paper.abstract) : ''),
+            embedding: item.embedding
+          };
+        })
+        .filter(item => item !== null && item.similarity >= minSimilarity)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, maxResults);
+
+      return {
+        query: searchQuery,
+        originalQuery: userQuery,
+        results: scoredResults,
+        totalResults: scoredResults.length,
+        dataset: targetDataset
+      };
+    } catch (error) {
+      console.error('Error performing semantic search:', error);
+      throw error;
+    }
+  }
+
   comparePapers(question) {
     // For now, return a general comparison based on presentation types and keywords
     const oralPapers = this.filteredPapers.filter(p => p.presentation === 'Oral');
@@ -2573,6 +3588,17 @@ Try one of these queries, or ask a more specific question about the papers!
     }
   }
 
+  updateMessageHtml(messageId, htmlContent) {
+    const messageDiv = document.getElementById(messageId);
+    if (messageDiv) {
+      const contentDiv = messageDiv.querySelector('.message-content');
+      if (contentDiv) {
+        contentDiv.innerHTML = htmlContent;
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+      }
+    }
+  }
+
   updateMessageWithProgress(messageId, message, current, total, percentage) {
     const messageDiv = document.getElementById(messageId);
     if (messageDiv) {
@@ -2600,33 +3626,108 @@ Try one of these queries, or ask a more specific question about the papers!
   }
 
   formatMessage(content) {
-    // Natural markdown formatting for conversational chat
-    let formatted = this.escapeHtml(content);
-    
-    // Bold text (**text**)
-    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    
-    // Italic text (*text*)
-    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    
-    // Code blocks (```code```)
-    formatted = formatted.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-    
-    // Inline code (`code`)
-    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-    
-    // Lists (lines starting with - or *)
-    formatted = formatted.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>');
-    formatted = formatted.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-    
-    // Numbered lists
-    formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
-    
-    // Line breaks - preserve paragraphs (double line breaks)
-    formatted = formatted.replace(/\n\n+/g, '</p><p>');
-    formatted = formatted.replace(/\n/g, '<br>');
-    formatted = '<p>' + formatted + '</p>';
-    
+    const rawText = content || '';
+    const codeBlocks = [];
+    const textWithPlaceholders = rawText.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, language, code) => {
+      const token = `__CODE_BLOCK_${codeBlocks.length}__`;
+      const escapedCode = this.escapeHtml(code);
+      codeBlocks.push(`<pre><code>${escapedCode}</code></pre>`);
+      return token;
+    });
+
+    const text = this.escapeHtml(textWithPlaceholders);
+    const lines = text.split('\n');
+    let html = '';
+    let inList = false;
+    let listType = null;
+
+    const applyInlineMarkdown = (value) => {
+      let formatted = value;
+      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+      formatted = this.applyInlineMath(formatted);
+      return formatted;
+    };
+
+    const closeList = () => {
+      if (inList) {
+        html += listType === 'ol' ? '</ol>' : '</ul>';
+        inList = false;
+        listType = null;
+      }
+    };
+
+    lines.forEach((line) => {
+      const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        closeList();
+        const level = headingMatch[1].length;
+        html += `<h${level}>${applyInlineMarkdown(headingMatch[2])}</h${level}>`;
+        return;
+      }
+
+      if (/^\s*([-*_])\1\1+\s*$/.test(line)) {
+        closeList();
+        html += '<hr>';
+        return;
+      }
+
+      const blockquoteMatch = line.match(/^>\s+(.+)$/);
+      if (blockquoteMatch) {
+        closeList();
+        html += `<blockquote>${applyInlineMarkdown(blockquoteMatch[1])}</blockquote>`;
+        return;
+      }
+
+      const orderedMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (orderedMatch) {
+        if (!inList || listType !== 'ol') {
+          closeList();
+          html += '<ol>';
+          inList = true;
+          listType = 'ol';
+        }
+        html += `<li>${applyInlineMarkdown(orderedMatch[1])}</li>`;
+        return;
+      }
+
+      const listMatch = line.match(/^\s*[-*]\s+(.*)$/);
+      if (listMatch) {
+        if (!inList || listType !== 'ul') {
+          closeList();
+          html += '<ul>';
+          inList = true;
+          listType = 'ul';
+        }
+        html += `<li>${applyInlineMarkdown(listMatch[1])}</li>`;
+        return;
+      }
+
+      closeList();
+
+      if (!line.trim()) {
+        html += '<br>';
+        return;
+      }
+
+      html += `<p>${applyInlineMarkdown(line)}</p>`;
+    });
+
+    closeList();
+
+    codeBlocks.forEach((block, index) => {
+      html = html.replace(`__CODE_BLOCK_${index}__`, block);
+    });
+
+    return html;
+  }
+
+  applyInlineMath(value) {
+    let formatted = value;
+    formatted = formatted.replace(/\\\[(.+?)\\\]/g, '<div class="math-block">$1</div>');
+    formatted = formatted.replace(/\$\$([\s\S]+?)\$\$/g, '<div class="math-block">$1</div>');
+    formatted = formatted.replace(/\\\((.+?)\\\)/g, '<span class="math-inline">$1</span>');
     return formatted;
   }
 

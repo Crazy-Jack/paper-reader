@@ -1,4 +1,112 @@
 ---
+
+### Feature: Gemini Google Search Grounding (2026)
+**Encounter**: User requested adding a search function based on Gemini Google Search grounding.
+
+**Solution**:
+- Added IPC handler to call Gemini with `google_search` tool via REST.
+- Exposed a new preload API for Google Search.
+- Added web search handling in the agent with inline citations and sources.
+- Documented web search usage in the UI.
+
+**Files Changed**: `local-desktop-agent/main.js`, `local-desktop-agent/preload.js`, `local-desktop-agent/agent.js`, `local-desktop-agent/index.html`
+
+---
+
+### UI: Grounded Sources Display (2026)
+**Encounter**: User reported that link rendering looked bad and URLs were too visible.
+
+**Solution**:
+- Render inline citations as clickable `[N]` links without URLs and remove the sources list.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
+
+### UI: Web Search HTML Rendering (2026)
+**Encounter**: User saw raw `<a href="...">` tags rendered as text in web search results.
+
+**Solution**:
+- Render grounded responses as HTML for web search results while escaping the base text.
+- Insert clickable `[N]` anchors at grounding positions.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
+
+### UI: Web Search Bullet Rendering (2026)
+**Encounter**: User reported bullet points like `* **Agentic RAG**` were not rendered as list items.
+
+**Solution**:
+- Added list parsing in web search HTML formatter for `-`/`*` lines.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
+
+### UI: Web Search Inline Markdown (2026)
+**Encounter**: User reported bolded list text like `**Agentic Retrieval-Augmented Generation (RAG)**:` not rendering well.
+
+**Solution**:
+- Added inline markdown handling (bold, italic, inline code) in web search HTML formatter.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
+
+### UI: Code Blocks and LaTeX Styling (2026)
+**Encounter**: User requested improved code block and LaTeX rendering.
+
+**Solution**:
+- Added HTML-safe math wrapping for `$$...$$`, `\(...\)`, and `\[...\]`.
+- Improved code block and inline code styling in chat UI.
+- Added math block and inline math styling in chat UI.
+
+**Files Changed**: `local-desktop-agent/agent.js`, `local-desktop-agent/styles/main.css`
+
+---
+
+### UI: Web Search Code Fences (2026)
+**Encounter**: User reported fenced code blocks still rendering as plain text.
+
+**Solution**:
+- Added fenced code block parsing to HTML formatter and render as `<pre><code>`.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
+
+### UI: Code Block Contrast (2026)
+**Encounter**: User reported code blocks were too low-contrast to read.
+
+**Solution**:
+- Darkened code block background and brightened code text for contrast.
+
+**Files Changed**: `local-desktop-agent/styles/main.css`
+
+---
+
+### UI: Code Block Two-Tone Background (2026)
+**Encounter**: User reported a second, lighter background inside code blocks.
+
+**Solution**:
+- Scoped inline code styling to exclude code blocks using `:not(pre) > code`.
+- Ensured `<pre><code>` only uses a single background from the `pre` element.
+
+**Files Changed**: `local-desktop-agent/styles/main.css`
+
+---
+
+### UI: Markdown Headings and Blocks (2026)
+**Encounter**: User reported `###` headings not rendering correctly and asked for a systematic check.
+
+**Solution**:
+- Added heading, ordered list, blockquote, and horizontal rule handling in message rendering.
+- Unified line-based rendering for better block-level markdown support.
+
+**Files Changed**: `local-desktop-agent/agent.js`
+
+---
 alwaysApply: true
 ---
 Always check this before implementing anything. Append the user encounter and the solution summary to the file 

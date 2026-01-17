@@ -73,6 +73,33 @@ Use 'Insert Image' to add images from your computer."
                   <small class="setting-help">Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></small>
                   <small class="setting-help" style="color: #27ae60; margin-top: 0.25rem; display: none;" id="api-key-saved-indicator">✓ API key is saved and will be loaded automatically</small>
                 </div>
+                <div class="setting-group" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #ddd;">
+                  <h5 style="margin-top: 0; margin-bottom: 0.75rem;">Deep Research API Keys</h5>
+                  <label for="firecrawl-api-key">Firecrawl API Key (Required):</label>
+                  <input type="password" id="firecrawl-api-key" class="setting-input" placeholder="Enter your Firecrawl API key...">
+                  <small class="setting-help">Get your API key from <a href="https://firecrawl.dev" target="_blank">Firecrawl</a></small>
+                  <small class="setting-help" style="color: #27ae60; margin-top: 0.25rem; display: none;" id="firecrawl-key-saved-indicator">✓ Firecrawl API key saved</small>
+                  
+                  <label for="openai-api-key" style="margin-top: 1rem; display: block;">OpenAI API Key:</label>
+                  <input type="password" id="openai-api-key" class="setting-input" placeholder="Enter your OpenAI API key...">
+                  <small class="setting-help">For o3-mini model. Get from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a></small>
+                  <small class="setting-help" style="color: #27ae60; margin-top: 0.25rem; display: none;" id="openai-key-saved-indicator">✓ OpenAI API key saved</small>
+                  
+                  <label for="fireworks-api-key" style="margin-top: 1rem; display: block;">Fireworks API Key:</label>
+                  <input type="password" id="fireworks-api-key" class="setting-input" placeholder="Enter your Fireworks API key...">
+                  <small class="setting-help">For DeepSeek R1 model. Get from <a href="https://fireworks.ai" target="_blank">Fireworks</a></small>
+                  <small class="setting-help" style="color: #27ae60; margin-top: 0.25rem; display: none;" id="fireworks-key-saved-indicator">✓ Fireworks API key saved</small>
+                  
+                  <label for="openai-endpoint" style="margin-top: 1rem; display: block;">OpenAI Endpoint (Optional):</label>
+                  <input type="text" id="openai-endpoint" class="setting-input" placeholder="https://api.openai.com/v1">
+                  <small class="setting-help">Custom endpoint for OpenAI-compatible APIs</small>
+                  
+                  <label for="custom-model" style="margin-top: 1rem; display: block;">Custom Model (Optional):</label>
+                  <input type="text" id="custom-model" class="setting-input" placeholder="model-name">
+                  <small class="setting-help">Custom model name to use</small>
+                  
+                  <button id="save-deep-research-keys-btn" class="btn btn-primary btn-small" style="width: 100%; margin-top: 0.5rem;">Save Deep Research Keys</button>
+                </div>
               </div>
             </div>
             
@@ -147,18 +174,29 @@ Use 'Insert Image' to add images from your computer."
                     <li>"What are some unexplored research directions?"</li>
                     <li>"Compare different approaches to few-shot learning"</li>
                   </ul>
+                  <p style="margin-top: 1rem;"><strong>Deep Research:</strong> Use the "🔍 Deep Research" button or type <code>/research &lt;query&gt;</code> to perform iterative web research. Type <code>/research-report &lt;query&gt;</code> for a detailed report.</p>
+                  <p><strong>Web Search:</strong> Use <code>/websearch &lt;query&gt;</code> (or <code>web: &lt;query&gt;</code>) to search the live web with Gemini and get grounded citations.</p>
                 </div>
               </div>
               <div class="chat-input-container">
-                <div class="mode-toggle">
-                  <button id="mode-toggle-btn" class="btn btn-toggle active" data-mode="ask">
-                    <span class="mode-label">Ask Mode</span>
-                  </button>
-                </div>
                 <textarea id="chat-input" class="chat-input" placeholder="Ask a question about the papers..." rows="3"></textarea>
                 <div class="chat-actions">
-                  <button id="send-btn" class="btn btn-primary">Send</button>
-                  <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                  <div class="mode-toggle-dropdown">
+                    <button id="mode-toggle-btn" class="btn btn-toggle active" data-mode="ask">
+                      <span class="mode-label">Ask Mode</span>
+                      <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div id="mode-dropdown-menu" class="dropdown-menu" style="display: none;">
+                      <a href="#" class="dropdown-item" data-mode="ask">Ask Mode</a>
+                      <a href="#" class="dropdown-item" data-mode="edit">Edit Mode</a>
+                      <a href="#" class="dropdown-item" data-mode="search">Search Mode</a>
+                    </div>
+                  </div>
+                  <div class="chat-actions-right">
+                    <button id="deep-research-btn" class="btn btn-secondary" title="Perform deep web research on your query">🔍 Deep Research</button>
+                    <button id="send-btn" class="btn btn-primary">Send</button>
+                    <button id="clear-btn" class="btn btn-secondary">Clear</button>
+                  </div>
                 </div>
               </div>
             </div>

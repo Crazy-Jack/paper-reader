@@ -45,3 +45,8 @@ local-desktop-agent/
 
 APPEND all the structure build for the local-desktop-agent in this file:
 ./.cursor/rules/local-desktop-app.mdc
+
+## Recent Additions
+
+- **Gemini Google Search**: New IPC handler (`google-search`) in `main.js`, preload API (`googleSearch`), and agent-side web search with grounded citations in `agent.js`.
+- **UI Help Text**: Added web search usage tips in `index.html`.

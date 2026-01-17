@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
+const { deepResearch, writeFinalReport, writeFinalAnswer } = require('./deep-research-service');
 
 let mainWindow;
 
@@ -57,6 +58,52 @@ app.commandLine.appendSwitch('ignore-ssl-errors');
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Set up application menu with Edit menu for clipboard shortcuts (required on macOS)
+  const template = [
+    ...(process.platform === 'darwin' ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 
   console.log('Registering IPC handlers...');
 
@@ -318,6 +365,63 @@ app.whenReady().then(() => {
     } catch (error) {
       console.error('Error loading API key:', error);
       return { apiKey: null };
+    }
+  });
+
+  // IPC handlers for Deep Research API keys
+  ipcMain.handle('save-deep-research-keys', async (event, keys) => {
+    try {
+      const appDataPath = app.getPath('userData');
+      const configPath = path.join(appDataPath, 'config.json');
+      
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+      
+      if (!config.deepResearchKeys) {
+        config.deepResearchKeys = {};
+      }
+      
+      if (keys.firecrawlApiKey !== undefined) {
+        config.deepResearchKeys.firecrawlApiKey = keys.firecrawlApiKey;
+      }
+      if (keys.openaiApiKey !== undefined) {
+        config.deepResearchKeys.openaiApiKey = keys.openaiApiKey;
+      }
+      if (keys.fireworksApiKey !== undefined) {
+        config.deepResearchKeys.fireworksApiKey = keys.fireworksApiKey;
+      }
+      if (keys.openaiEndpoint !== undefined) {
+        config.deepResearchKeys.openaiEndpoint = keys.openaiEndpoint;
+      }
+      if (keys.customModel !== undefined) {
+        config.deepResearchKeys.customModel = keys.customModel;
+      }
+      
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error saving deep research API keys:', error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle('load-deep-research-keys', async () => {
+    try {
+      const appDataPath = app.getPath('userData');
+      const configPath = path.join(appDataPath, 'config.json');
+      
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        return { keys: config.deepResearchKeys || {} };
+      }
+      
+      return { keys: {} };
+    } catch (error) {
+      console.error('Error loading deep research API keys:', error);
+      return { keys: {} };
     }
   });
 
@@ -1021,6 +1125,79 @@ Return JSON array: ["summary1", "summary2", ...]`;
     }
   });
 
+  // IPC handler for Gemini Google Search grounding
+  ipcMain.handle('google-search', async (event, { apiKey, query }) => {
+    try {
+      if (!apiKey) {
+        return { error: 'API key not provided' };
+      }
+
+      if (!query || !query.trim()) {
+        return { error: 'Search query is required' };
+      }
+
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+      const requestData = JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: query }]
+          }
+        ],
+        tools: [
+          { google_search: {} }
+        ]
+      });
+
+      const response = await new Promise((resolve, reject) => {
+        const req = https.request(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              if (result.error) {
+                reject(new Error(result.error.message || 'Google Search API error'));
+                return;
+              }
+              resolve(result);
+            } catch (err) {
+              reject(new Error(`Failed to parse response: ${err.message}`));
+            }
+          });
+        });
+
+        req.on('error', (err) => {
+          reject(new Error(`Request failed: ${err.message}`));
+        });
+
+        req.write(requestData);
+        req.end();
+      });
+
+      const candidate = response?.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      const text = parts.map((part) => part.text || '').join('').trim();
+      const groundingMetadata = candidate?.groundingMetadata || null;
+
+      if (!text) {
+        return { error: 'No response text received from Google Search grounding' };
+      }
+
+      return { success: true, text, groundingMetadata };
+    } catch (error) {
+      console.error('Error calling Gemini Google Search:', error);
+      return { error: error.message || 'Failed to call Gemini Google Search' };
+    }
+  });
+
   // Helper function to parse JSON from LLM response (basic version - kept for compatibility)
   function parseBasicJSON(rawResponse) {
     // Try extracting from markdown code block
@@ -1553,10 +1730,26 @@ Keep the reading plan focused - only read what's necessary. If the edit is simpl
       }
     });
 
-    // Prepare proposal summary for review
+    // Prepare proposal summary for review (truncated for overview)
     const proposalSummary = proposal.changes.map((change, idx) => {
       return `Change ${idx + 1}: ${change.action} - "${change.newText.substring(0, 100)}${change.newText.length > 100 ? '...' : ''}"`;
     }).join('\n');
+
+    // Prepare FULL proposal details for review (no truncation)
+    const proposalFullDetails = proposal.changes.map((change, idx) => {
+      let detail = `Change ${idx + 1}: ${change.action.toUpperCase()}\n`;
+      if (change.searchText) {
+        detail += `  SearchText (to find): "${change.searchText}"\n`;
+      }
+      detail += `  NewText (FULL TEXT - no truncation): "${change.newText}"\n`;
+      if (change.locationContext) {
+        detail += `  Location: ${change.locationContext}\n`;
+      }
+      if (change.surroundingText) {
+        detail += `  Surrounding context: "${change.surroundingText.substring(0, 200)}${change.surroundingText.length > 200 ? '...' : ''}"\n`;
+      }
+      return detail;
+    }).join('\n\n');
 
     const prompt = `You are a STRICT quality reviewer for thesis edit proposals. You have HIGH standards - only approve proposals that are excellent.
 
@@ -1602,8 +1795,13 @@ Edit Proposal:
 ${proposal.description || 'No description'}
 Reasoning: ${proposal.reasoning || 'No reasoning provided'}
 
-Proposed Changes:
+Proposed Changes Summary:
 ${proposalSummary}
+
+FULL Proposed Changes (Complete Text - No Truncation):
+${proposalFullDetails}
+
+IMPORTANT: Review the FULL newText above (not the truncated summary). The newText must be complete, grammatically correct sentences. Do not flag as incomplete if you can see the full text ends properly.
 
 Thesis Context (first 1500 chars):
 ${thesisContent.substring(0, 1500)}...
@@ -2095,13 +2293,29 @@ Return a JSON object following the schema with type="edit", a clear description,
         // Attach review to proposal
         proposal.review = review;
         
-        // Check if review approves the proposal
+        // Check if review approves the proposal - RAISED BAR: More strict approval
         const hasBlockers = review.issues && review.issues.some(issue => issue.severity === 'blocker');
-        const isRejected = review.overallVerdict === 'reject' || !review.approved || hasBlockers;
+        const hasWarnings = review.issues && review.issues.some(issue => issue.severity === 'warning');
+        const hasMultipleIssues = review.issues && review.issues.length > 2; // More than 2 issues total
+        const lowConfidence = review.confidence && review.confidence < 0.8; // Confidence must be >= 0.8
+        
+        // RAISED BAR: Reject if:
+        // - Has blockers (original)
+        // - Has multiple warnings (2+ warnings)
+        // - Has multiple issues total (3+ issues of any severity)
+        // - Low confidence (< 0.8)
+        // - Overall verdict is reject
+        // - Not approved
+        const isRejected = review.overallVerdict === 'reject' || 
+                          !review.approved || 
+                          hasBlockers ||
+                          (hasWarnings && review.issues.filter(i => i.severity === 'warning').length >= 2) ||
+                          hasMultipleIssues ||
+                          lowConfidence;
         
         if (!isRejected) {
           // Proposal approved! Break out of loop
-          console.log(`✓ Proposal approved by review agent after ${proposalAttempt} attempt(s)`);
+          console.log(`✓ Proposal approved by review agent after ${proposalAttempt} attempt(s) (confidence: ${review.confidence})`);
           break;
         } else {
           // Proposal rejected - prepare feedback for next iteration
@@ -2342,6 +2556,82 @@ Return a JSON object following the schema with type="edit", a clear description,
     } catch (error) {
       console.error('Error reading image file:', error);
       return null;
+    }
+  });
+
+  // IPC handler for deep research
+  ipcMain.handle('deep-research', async (event, { query, breadth = 4, depth = 2, generateReport = false }) => {
+    try {
+      // Load API keys from config
+      const appDataPath = app.getPath('userData');
+      const configPath = path.join(appDataPath, 'config.json');
+      
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
+      
+      const deepResearchKeys = config.deepResearchKeys || {};
+      
+      if (!deepResearchKeys.firecrawlApiKey) {
+        return { error: 'Firecrawl API key is required. Please configure it in Settings.' };
+      }
+      
+      if (!deepResearchKeys.openaiApiKey && !deepResearchKeys.fireworksApiKey) {
+        return { error: 'At least one LLM API key (OpenAI or Fireworks) is required. Please configure it in Settings.' };
+      }
+
+      const apiKeys = {
+        openaiKey: deepResearchKeys.openaiApiKey || null,
+        fireworksKey: deepResearchKeys.fireworksApiKey || null,
+        openaiEndpoint: deepResearchKeys.openaiEndpoint || null,
+        customModel: deepResearchKeys.customModel || null,
+      };
+
+      // Progress callback
+      const onProgress = (progress) => {
+        event.sender.send('deep-research-progress', progress);
+      };
+
+      // Run deep research
+      const result = await deepResearch({
+        query,
+        breadth,
+        depth,
+        onProgress,
+        apiKeys,
+        firecrawlApiKey: deepResearchKeys.firecrawlApiKey,
+        firecrawlBaseUrl: deepResearchKeys.firecrawlBaseUrl || null,
+        concurrencyLimit: 2,
+      });
+
+      // Generate final answer or report
+      let finalContent;
+      if (generateReport) {
+        finalContent = await writeFinalReport({
+          prompt: query,
+          learnings: result.learnings,
+          visitedUrls: result.visitedUrls,
+          apiKeys,
+        });
+      } else {
+        finalContent = await writeFinalAnswer({
+          prompt: query,
+          learnings: result.learnings,
+          apiKeys,
+        });
+      }
+
+      return {
+        success: true,
+        answer: finalContent,
+        report: generateReport ? finalContent : null,
+        learnings: result.learnings,
+        visitedUrls: result.visitedUrls,
+      };
+    } catch (error) {
+      console.error('Error in deep research:', error);
+      return { error: error.message || 'Failed to perform deep research' };
     }
   });
 
