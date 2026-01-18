@@ -2934,8 +2934,10 @@ Return only the optimized search query text, nothing else.`;
       .filter(Boolean)
       .sort((a, b) => a.index - b.index);
 
+    const sourcesHtml = this.buildSourcesHtml(chunks);
     if (insertions.length === 0) {
-      return this.formatPlainHtml(safeText);
+      const baseHtml = this.formatPlainHtml(safeText);
+      return sourcesHtml ? `${baseHtml}${sourcesHtml}` : baseHtml;
     }
 
     let html = '';
@@ -2948,7 +2950,32 @@ Return only the optimized search query text, nothing else.`;
     });
     html += this.escapeHtml(safeText.slice(lastIndex));
 
-    return this.formatPlainHtml(html, true);
+    const baseHtml = this.formatPlainHtml(html, true);
+    return sourcesHtml ? `${baseHtml}${sourcesHtml}` : baseHtml;
+  }
+
+  buildSourcesHtml(chunks) {
+    const sources = (chunks || [])
+      .map((chunk, index) => {
+        const uri = chunk?.web?.uri;
+        if (!uri) return null;
+        const title = chunk?.web?.title || uri;
+        return `<li><a href="${uri}" target="_blank" rel="noopener noreferrer">[${index + 1}] ${this.escapeHtml(title)}</a></li>`;
+      })
+      .filter(Boolean);
+
+    if (sources.length === 0) {
+      return '';
+    }
+
+    return `
+      <div class="websearch-sources">
+        <div class="websearch-sources-title">Sources</div>
+        <ul>
+          ${sources.join('')}
+        </ul>
+      </div>
+    `;
   }
 
   formatPlainHtml(content, isHtml = false) {
@@ -2957,7 +2984,8 @@ Return only the optimized search query text, nothing else.`;
     const textWithPlaceholders = rawText.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, language, code) => {
       const token = `__CODE_BLOCK_${codeBlocks.length}__`;
       const escapedCode = this.escapeHtml(code);
-      codeBlocks.push(`<pre><code>${escapedCode}</code></pre>`);
+      const languageClass = language ? ` class="language-${language.toLowerCase()}"` : '';
+      codeBlocks.push(`<pre><code${languageClass}>${escapedCode}</code></pre>`);
       return token;
     });
 
@@ -3567,6 +3595,7 @@ Try one of these queries, or ask a more specific question about the papers!
 
     this.chatMessages.appendChild(messageDiv);
     this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    this.applySyntaxHighlighting(messageDiv);
 
     // Remove welcome message if it exists
     const welcomeMsg = this.chatMessages.querySelector('.welcome-message');
@@ -3584,6 +3613,7 @@ Try one of these queries, or ask a more specific question about the papers!
       if (contentDiv) {
         contentDiv.innerHTML = this.formatMessage(newContent);
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        this.applySyntaxHighlighting(messageDiv);
       }
     }
   }
@@ -3595,6 +3625,7 @@ Try one of these queries, or ask a more specific question about the papers!
       if (contentDiv) {
         contentDiv.innerHTML = htmlContent;
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        this.applySyntaxHighlighting(messageDiv);
       }
     }
   }
@@ -3631,7 +3662,8 @@ Try one of these queries, or ask a more specific question about the papers!
     const textWithPlaceholders = rawText.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, language, code) => {
       const token = `__CODE_BLOCK_${codeBlocks.length}__`;
       const escapedCode = this.escapeHtml(code);
-      codeBlocks.push(`<pre><code>${escapedCode}</code></pre>`);
+      const languageClass = language ? ` class="language-${language.toLowerCase()}"` : '';
+      codeBlocks.push(`<pre><code${languageClass}>${escapedCode}</code></pre>`);
       return token;
     });
 
@@ -3729,6 +3761,16 @@ Try one of these queries, or ask a more specific question about the papers!
     formatted = formatted.replace(/\$\$([\s\S]+?)\$\$/g, '<div class="math-block">$1</div>');
     formatted = formatted.replace(/\\\((.+?)\\\)/g, '<span class="math-inline">$1</span>');
     return formatted;
+  }
+
+  applySyntaxHighlighting(container) {
+    if (!window.hljs || !container) {
+      return;
+    }
+    const blocks = container.querySelectorAll('pre code');
+    blocks.forEach((block) => {
+      window.hljs.highlightElement(block);
+    });
   }
 
   clearChat() {

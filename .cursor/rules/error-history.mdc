@@ -97,6 +97,29 @@
 
 ---
 
+### UI: Syntax Highlighting for Code Blocks (2026)
+**Encounter**: User requested language-based code coloring.
+
+**Solution**:
+- Integrated Highlight.js via CDN and applied `highlightElement` after message render.
+- Added language classes to fenced code blocks for proper highlighting.
+- Allowed CDN in CSP for scripts and styles.
+
+**Files Changed**: `local-desktop-agent/index.html`, `local-desktop-agent/agent.js`
+
+---
+
+### UI: Web Search Sources Restored (2026)
+**Encounter**: User reported web search references were missing.
+
+**Solution**:
+- Reintroduced sources list after grounded responses with clickable links.
+- Added light styling to separate sources from main content.
+
+**Files Changed**: `local-desktop-agent/agent.js`, `local-desktop-agent/styles/main.css`
+
+---
+
 ### UI: Markdown Headings and Blocks (2026)
 **Encounter**: User reported `###` headings not rendering correctly and asked for a systematic check.
 

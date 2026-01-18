@@ -1123,7 +1123,7 @@ body {
 .message {
   padding: 1rem;
   border-radius: 8px;
-  max-width: 80%;
+  max-width: 100%;
   word-wrap: break-word;
 }
 
@@ -1135,9 +1135,9 @@ body {
 }
 
 .message.agent {
-  background-color: #f0f0f0;
+  background-color: transparent;
   color: #333;
-  align-self: flex-start;
+  align-self: stretch;
 }
 
 .message-header {
@@ -1166,7 +1166,9 @@ body {
   display: block;
   font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
   color: #f8fafc;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   background: transparent;
   padding: 0;
 }
@@ -1196,6 +1198,34 @@ body {
   background: #f4f6ff;
   border-radius: 4px;
   padding: 0.05rem 0.3rem;
+}
+
+.message-content .websearch-sources {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e1e5ee;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.message-content .websearch-sources-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: #334155;
+}
+
+.message-content .websearch-sources ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.message-content .websearch-sources a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.message-content .websearch-sources a:hover {
+  text-decoration: underline;
 }
 
 .message-content ul,
